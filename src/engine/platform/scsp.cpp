@@ -423,7 +423,7 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
 
   // TL: linear-in-level
   //int tlInt=(int)floor((1.0-(double)op.level/127.0)*127.0+0.5); 
-  int tlInt=(int)floor((1.0-(double)op.level/255.0)*254.0+1.0); 
+  int tlInt=(int)floor((1.0-(double)op.level/255.0)*255.0); 
   if (tlInt<0) tlInt=0;
   if (tlInt>255) tlInt=255;
   unsigned char tl=(unsigned char)tlInt;
@@ -1214,7 +1214,7 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
       // Apply to every op so the next key-on retains it for any op the
       // user later marks as a carrier.
       for (int op=0; op<32; op++) {
-        chan[c.chan].scspState.ops[op].modSourceY=modSourceY;
+        chan[c.chan].scspState.ops[op].modSourceX=modSourceX;
       }
       if (chan[c.chan].scspState.mode!=DivInstrumentSCSP::SCSP_MODE_FM) break;
       int n=activeOpCount[c.chan];

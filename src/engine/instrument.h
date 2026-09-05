@@ -813,6 +813,71 @@ struct DivInstrumentES5506 {
     envelope(Envelope()) {}
 };
 
+struct DivInstrumentSCSP_FM {
+  bool isRelative;
+  unsigned char opCount;
+  struct Op {
+
+    signed short   fixedBlock;
+    unsigned short fixedFnum;
+    unsigned char  level;
+	
+	// envelope
+    unsigned char ar, d1r, dl, d2r, rr, krs;
+	bool eghold, lforeset;
+	
+	// phase
+    unsigned char mdl;
+	
+    bool modSourceXpast, modSourceYpast;
+    signed char modSourceX;
+    signed char modSourceY;
+	
+	// lfo
+	unsigned char lfoFreq, PMlfoWave, PMlfoDepth, AMlfoWave, AMlfoDepth;
+	
+	// output
+	unsigned char isel, imxl, efsdl, efpan, disdl, dipan;
+	
+    //unsigned short loopStart, loopEnd;
+    //unsigned char lpctlOp;
+
+    signed short sampleId;
+    Op():
+      fixedBlock(0),
+      fixedFnum(511),
+	  
+      level(255),
+	  
+      ar(31), d1r(0), dl(0), d2r(0), rr(31), krs(31),
+	  eghold(false),
+	  
+	  lforeset(false),
+	  lfoFreq(0),
+	  PMlfoWave(0),
+	  PMlfoDepth(0),
+	  AMlfoWave(0),
+	  AMlfoDepth(0),
+	  
+      mdl(0),
+      modSourceX(0),
+	  modSourceXpast(false),
+      modSourceY(0),
+	  modSourceYpast(false),
+	  
+      //isCarrier(true),
+      //loopStart(0),
+      //loopEnd(1023),
+      //lpctlOp(1),
+	  
+      sampleId(0) {}
+    bool operator==(const Op& other);
+    bool operator!=(const Op& other) {
+      return !(*this==other);
+    }
+  } ops[32];
+}
+
 struct DivInstrumentSCSP {
   enum SynthMode: unsigned char {
     SCSP_MODE_PCM=0,

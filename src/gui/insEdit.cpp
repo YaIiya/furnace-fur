@@ -8503,7 +8503,7 @@ void FurnaceGUI::drawInsEdit() {
         {
           insTabWavetable(ins);
         }
-		if (ins->type==DIV_INS_YMF292_FM) if (ImGui::BeginTabItem("SCSP")) {
+		if (ins->type==DIV_INS_YMF292) if (ImGui::BeginTabItem("SCSP")) {
           if (ImGui::BeginTable("SCSPParams",2,ImGuiTableFlags_SizingStretchSame)) {
             static const char* scspLpctlNames[]={ "off", "forward", "reverse", "ping-pong" };
             static const char* scspLfoWS[]={ "saw", "square", "tri", "noise" };
@@ -8611,12 +8611,22 @@ void FurnaceGUI::drawInsEdit() {
             ImGui::EndTable();
           }
           {
-            static const char* scspModSourceOptions[]={
+            static const char* scspModSourceOptionsOperators[]={
               "None",
               "Op 1","Op 2","Op 3","Op 4","Op 5","Op 6","Op 7","Op 8",
               "Op 9","Op 10","Op 11","Op 12","Op 13","Op 14","Op 15","Op 16",
               "Op 17","Op 18","Op 19","Op 20","Op 21","Op 22","Op 23","Op 24",
               "Op 25","Op 26","Op 27","Op 28","Op 29","Op 30","Op 31","Op 32"
+            };
+			static const char* scspModSourceOptionsRelative[]={
+              "-31","-30","-29","-28","-27","-26","-25","-24",
+              "-23","-22","-21","-20","-19","-18","-17","-16",
+              "-15","-14","-13","-12","-11","-10","-9", "-8",
+              "-7", "-6", "-5", "-4", "-3", "-2", "-1", "Self",
+              "+1", "+2", "+3", "+4", "+5", "+6", "+7", "+8",
+              "+9", "+10","+11","+12","+13","+14","+15","+16",
+              "+17","+18","+19","+20","+21","+22","+23","+24",
+              "+25","+26","+27","+28","+29","+30","+31"
             };
 
             ImGui::SeparatorText(_("FM Operators"));

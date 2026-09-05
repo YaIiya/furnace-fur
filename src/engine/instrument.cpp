@@ -1766,10 +1766,8 @@ void DivInstrument::writeFeatureSC(SafeWriter* w) {
   w->writeC(scsp.krs);
   w->writeC(scsp.lpctl);
   w->writeC(
+    0|
     (scsp.eghold?1:0)|
-    (scsp.lpslnk?2:0)|
-    (scsp.sdir?4:0)|
-    (scsp.stwinh?8:0)|
     (scsp.lforeset?16:0)
   );
   w->writeC(scsp.lfof);
@@ -1789,22 +1787,72 @@ void DivInstrument::writeFeatureSC(SafeWriter* w) {
   w->writeC(scsp.opCount);
   for (int i=0; i<32; i++) {
     DivInstrumentSCSP::Op& op=scsp.ops[i];
-    w->writeS(op.freqRatio);
-    w->writeS(op.freqFixed);
+    w->writeS(0);
+    w->writeS(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeC(0);
+    w->writeS(0);
+    w->writeS(0);
+    w->writeC(0);
+    w->writeS(0);
+  }
+
+  FEATURE_END;
+}
+
+void DivInstrument::writeFeatureSF(SafeWriter* w) {
+  FEATURE_BEGIN("SF");
+
+  w->writeC(scsp.isRelative);
+  w->writeC(scsp.opCount);
+  for (int i=0; i<32; i++) {
+    DivInstrumentSCSP::Op& op=scsp.ops[i];
+	// ffreq
+    w->writeS(op.fixedBlock);
+    w->writeS(op.fixedFnum);
+	
+	// level
     w->writeC(op.level);
+	
+	// envelope
     w->writeC(op.ar);
     w->writeC(op.d1r);
     w->writeC(op.dl);
     w->writeC(op.d2r);
     w->writeC(op.rr);
+    w->writeC(op.krs);
+    w->writeC(
+      (op.eghold?1:0)|
+      (op.lforeset?16:0)
+    );
+	
+	// modulation parameters
     w->writeC(op.mdl);
     w->writeC((unsigned char)op.modSourceX);
     w->writeC((unsigned char)op.modSourceY);
-    //w->writeC(op.feedback);
-    w->writeC(op.isCarrier?1:0);
-    w->writeS(op.loopStart);
-    w->writeS(op.loopEnd);
-    w->writeC(op.lpctlOp);
+	
+	// lfo
+    w->writeC(op.lfof);
+    w->writeC(op.plfows);
+    w->writeC(op.plfos);
+    w->writeC(op.alfows);
+    w->writeC(op.alfos);
+	
+	// sound output
+    w->writeC(op.isel);
+    w->writeC(op.imxl);
+    w->writeC(op.efsdl);
+    w->writeC(op.efpan);
+    w->writeC(op.disdl);
+    w->writeC(op.dipan);
     w->writeS((unsigned short)op.sampleId);
   }
 
@@ -3335,10 +3383,6 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
   scsp.dipan=reader.readC();
 
   scsp.opCount=reader.readC();
-  // Per-op layout is 21 bytes (incl. trailing sampleId). The original
-  // 6-op format was 21×6=126 bytes; the 32-op format is 21×32=672 bytes.
-  // The earlier per-op-sample extension was 22 bytes (with a `waveform`
-  // byte that's been removed); both encodings include sampleId.
   bool hasOpSampleId=((endOfFeat-reader.tell())>=126);
   int opsAvailable=(int)((endOfFeat-reader.tell())/(hasOpSampleId?21:20));
   if (opsAvailable<0) opsAvailable=0;
@@ -3356,7 +3400,6 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
     op.mdl=reader.readC();
     op.modSourceX=(signed char)reader.readC();
     op.modSourceY=(signed char)reader.readC();
-    //op.feedback=reader.readC();
     op.isCarrier=reader.readC();
     op.loopStart=reader.readS();
     op.loopEnd=reader.readS();
@@ -3364,6 +3407,59 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
     if (hasOpSampleId) {
       op.sampleId=(signed short)reader.readS();
     }
+  }
+
+  READ_FEAT_END;
+}
+
+void DivInstrument::writeFeatureSF(SafeReader& reader, short version) {
+  READ_FEAT_BEGIN;
+
+  scsp.isRelative=reader.readC();
+  scsp.opCount   =reader.readC();
+  for (int i=0; i<32; i++) {
+    DivInstrumentSCSP::Op& op=scsp.ops[i];
+	// ffreq
+	fFreq=reader.readS();
+    op.fixedBlock=(fFreq>>10)-4;
+    op.fixedFnum =fFreq&1023;
+	
+	// level
+    op.level=reader.readC()
+	
+	// envelope
+    op.ar =reader.readC()
+    op.d1r=reader.readC()
+    op.dl =reader.readC()
+    op.d2r=reader.readC()
+    op.rr =reader.readC()
+    op.krs=reader.readC()
+    envBits    =reader.readC()
+	op.eghold  =(envBits&1)?true:false;
+	op.lforeset=(envBits&16)?true:false;
+	
+    op.mdl       =reader.readC()
+    op.modSourceX=reader.readC()
+    op.modSourceY=reader.readC()
+	
+	// lfo
+    op.lfoFreq   =reader.readC()
+    op.PMlfoWave =reader.readC()
+    op.PMlfoDepth=reader.readC()
+    op.AMlfoWave =reader.readC()
+    op.AMlfoDepth=reader.readC()
+
+	
+	// sound output
+    op.isel =reader.readC()
+    op.imxl =reader.readC()
+    op.efsdl=reader.readC()
+    op.efpan=reader.readC()
+    op.disdl=reader.readC()
+    op.dipan=reader.readC()
+	
+	
+    op.sampleId=(unsigned short)reader.readS()
   }
 
   READ_FEAT_END;
