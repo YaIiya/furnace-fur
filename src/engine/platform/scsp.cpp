@@ -343,7 +343,7 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
 
   // TL: linear-in-level
   //int tlInt=(int)floor((1.0-(double)op.level/127.0)*127.0+0.5); 
-  unsigned char finalTl=op.directSendLevel?(255 - (255 * ((float)c.outVol/255) * ((float)(255-op.level)/255))):op.level;
+  unsigned char finalTl=(255 - (255 * ((float)c.outVol/255) * ((float)(255-op.level)/255)));
 
   unsigned short d4=(((unsigned short)(op.decay1Rate&0x1F))<<11)
                   | (((unsigned short)(op.decay2Rate&0x1F))<<6)
@@ -394,8 +394,8 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   scsp_write_slot(slot,0x8,octBits);
   scsp_write_slot(slot,0x9,d9);
   scsp_slot_set_effect_send(slot,op.dspInputSlot,op.dspSendLevel);
-  //scsp_slot_set_effect_output(slot,0,0);
   scsp_slot_set_direct_output(slot,directSendLevel,op.directPan);
+  //scsp_slot_set_effect_output(slot,0,0);
 }
 
 void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
@@ -503,14 +503,14 @@ void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
   scsp_write_slot(slot,0x9,d9);
 
   // DSP send (reg 0xA): ISEL[6:3] | IMXL[2:0]
-  scsp_slot_set_effect_send(slot,iSlot.dspInputSlot,iSlot.dspSendLevel);
   // EFSDL/EFPAN (lower byte of reg 0xB)
   //scsp_slot_set_effect_output(slot,st.efsdl,st.efpan);
 
   // DISDL/DIPAN (upper byte of reg 0xB) — direct mix output
   unsigned char directSendLevel=isMuted[chanIdx]?0:(iSlot.directSendLevel&0x7);
   unsigned char directPan=(unsigned char)(c.pan&0x1F);
-  writeSlotPan(slot,directSendLevel,directPan);
+  scsp_slot_set_direct_output(slot,directSendLevel,iSlot.directPan);
+  scsp_slot_set_effect_send(slot,iSlot.dspInputSlot,(isMuted[chanIdx]?0:iSlot.dspSendLevel));
 
   c.sampleSet=true;
 }
@@ -684,7 +684,8 @@ void DivPlatformSCSP::tick(bool sysTick) {
             scsp_write_slot(channel+op, 0x8, octBits);
           }
           chan[channel].freqChanged=false;
-        } else if (chan[channel].sample>=0 && sampleLoaded[chan[channel].sample]) {
+        }
+		else if (chan[channel].sample>=0 && sampleLoaded[chan[channel].sample]) {
           // Bypass parent->calcFreq for the same reason as the FM path:
           // with SCSP's CHIP_FREQBASE=4096 / chipClock=22.58 MHz ratio,
           // round(fbase * divider/clock) truncates to 0. Recompute fbase

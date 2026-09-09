@@ -8131,8 +8131,7 @@ void FurnaceGUI::drawInsEdit() {
               ImGui::TableNextColumn();
 			  if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
                 P(CWSliderScalar(_("Mod Source X Offset"),ImGuiDataType_U8,&currentOperator.modSourceX,&_ZERO,&_THIRTY_ONE)); rightClickable
-			    TOOLTIP_TEXT("Modulation source X offset in slots. Wraps around.")
-                MARK_MODIFIED;/*
+			    TOOLTIP_TEXT("Modulation source X offset in slots. Wraps around.")/*
 				int modSourceX=currentOperator.modSourceX;
                 if (modSourceX>ins->scsp.opCount) modSourceX=ins->scsp.opCount-1;
                 if (ImGui::Combo(_("Mod Source X"),&modSourceX,scspModSourceOptions,ins->scsp.opCount)) {
@@ -8146,8 +8145,7 @@ void FurnaceGUI::drawInsEdit() {
                 ImGui::TableNextRow();
 				ImGui::TableNextColumn();
                 P(CWSliderScalar(_("Mod Source Y Offset"),ImGuiDataType_U8,&currentOperator.modSourceY,&_ZERO,&_THIRTY_ONE)); rightClickable
-			    TOOLTIP_TEXT("Modulation source Y offset in slots. Wraps around.")
-                MARK_MODIFIED;/*
+			    TOOLTIP_TEXT("Modulation source Y offset in slots. Wraps around.")/*
 			    int modSourceY=currentOperator.modSourceY;
                 if (modSourceY>ins->scsp.opCount) modSourceY=ins->scsp.opCount-1;
                 if (ImGui::Combo(_("Mod Source Y"),&modSourceY,scspModSourceOptions,ins->scsp.opCount)) {
@@ -8170,14 +8168,19 @@ void FurnaceGUI::drawInsEdit() {
 			  int lfoWavePitch=currentOperator.lfoWavePitch;
               if (lfoWavePitch>3) lfoWavePitch=3;
               if (ImGui::Combo(_("LFO PM Wave"),&lfoWavePitch,scspLfoWS,4)) {
-				currentOperator.lfoWavePitch=(unsigned char)lfoWavePitch; MARK_MODIFIED;
+			    if (lfoWavePitch != currentOperator.lfoWavePitch) {
+                  currentOperator.lfoWavePitch=lfoWavePitch;
+                  MARK_MODIFIED;
+				}
 		      }
               P(CWSliderScalar(_("LFO PM Depth"),ImGuiDataType_U8,&currentOperator.lfoDepthPitch,&_ZERO,&_SEVEN)); rightClickable
 			  int lfoWaveAmp=currentOperator.lfoWaveAmp;
               if (lfoWaveAmp>3) lfoWaveAmp=3;
               if (ImGui::Combo(_("LFO AM Wave"),&lfoWaveAmp,scspLfoWS,4)) {
-                currentOperator.lfoWaveAmp=lfoWaveAmp;
-                MARK_MODIFIED;
+			    if (lfoWaveAmp != currentOperator.lfoWaveAmp) {
+                  currentOperator.lfoWaveAmp=lfoWaveAmp;
+                  MARK_MODIFIED;
+				}
 		      }
               P(CWSliderScalar(_("LFO AM Depth"),ImGuiDataType_U8,&currentOperator.lfoDepthAmp,&_ZERO,&_SEVEN)); rightClickable
 			  
@@ -8195,14 +8198,16 @@ void FurnaceGUI::drawInsEdit() {
 			int loopType=currentOperator.loopType;
             if (loopType>4) loopType=4;
             if (ImGui::Combo(_("Loop Control"),&loopType,scspLpctlNames,5)) {
-              currentOperator.loopType=(DivInstrumentSCSP::LoopType)loopType;
-              MARK_MODIFIED;
+			  if (loopType != currentOperator.loopType) {
+                currentOperator.loopType=(DivInstrumentSCSP::LoopType)loopType;
+                MARK_MODIFIED;
+			  }
 		    }
           } else {
             P(ImGui::Checkbox(_("Relative FM Mode"),&ins->scsp.fmRelative));
 		  }
 		  // TODO: Regular FM interface
-		  if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
+		  if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM && !ins->scsp.fmRelative) {
 		    CENTER_TEXT("Coming Soon!");
 		    ImGui::TextUnformatted("Coming Soon!");
 		  }
