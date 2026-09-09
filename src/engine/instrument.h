@@ -1267,8 +1267,8 @@ struct DivInstrument: DivInstrumentPOD {
   void readFeaturePN(SafeReader& reader, short version);
   void readFeatureS2(SafeReader& reader, short version);
   void readFeatureS3(SafeReader& reader, short version);
+  void readFeatureSCold(SafeReader& reader, short version);
   void readFeatureSC(SafeReader& reader, short version);
-  void readFeatureSCnew(SafeReader& reader, short version);
 
   DivDataErrors readInsDataOld(SafeReader& reader, short version);
   DivDataErrors readInsDataNew(SafeReader& reader, short version, bool fui, DivSong* song);

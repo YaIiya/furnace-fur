@@ -3306,7 +3306,7 @@ void DivInstrument::readFeatureES(SafeReader& reader, short version) {
   READ_FEAT_END;
 }
 
-void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
+void DivInstrument::readFeatureSCold(SafeReader& reader, short version) {
   READ_FEAT_BEGIN;
 
   scsp.mode=(DivInstrumentSCSP::SynthMode)reader.readC();
@@ -3314,7 +3314,7 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
   if (scsp.mode == 0) {
   DivInstrumentSCSP::Op& op1=scsp.ops[0];
   
-  op1.level=255-reader.readC();
+  op1.level=reader.readC();
   
   op1.decayLevel=reader.readC();
   op1.attackRate=reader.readC();
@@ -3356,7 +3356,7 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
       //op.freqFixed=reader.readS();
 	  reader.readS(); reader.readS(); // no idea how to do ratios yet
 	  
-      op.level=reader.readC();
+      op.level=255-reader.readC();
       op.attackRate=reader.readC();
       op.decay1Rate=reader.readC();
       op.decayLevel=reader.readC();
@@ -3367,7 +3367,7 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
       op.modSourceX=(signed char)reader.readC();
       op.modSourceY=(signed char)reader.readC();
 	  
-      op.directSendLevel=(reader.readC())?7:0;
+      op.directSendLevel=(reader.readC())?7:0; // previously isCarrier flag
       //op.loopStart=reader.readS();
       //op.loopEnd=reader.readS();
 	  reader.readS(); reader.readS();
@@ -3381,7 +3381,7 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
   READ_FEAT_END;
 }
 
-void DivInstrument::readFeatureSCnew(SafeReader& reader, short version) {
+void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
   READ_FEAT_BEGIN;
 
   scsp.mode=(DivInstrumentSCSP::SynthMode)reader.readC();
