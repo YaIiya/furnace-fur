@@ -8202,9 +8202,10 @@ void FurnaceGUI::drawInsEdit() {
             P(ImGui::Checkbox(_("Relative FM Mode"),&ins->scsp.fmRelative));
 		  }
 		  // TODO: Regular FM interface
-		  CENTER_TEXT("Coming Soon!");
-		  ImGui::TextUnformatted("Coming Soon!");
-		  
+		  if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
+		    CENTER_TEXT("Coming Soon!");
+		    ImGui::TextUnformatted("Coming Soon!");
+		  }
 		  ImGui::EndTabItem();
 		  
           /*
