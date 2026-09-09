@@ -354,7 +354,7 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   unsigned short d7=computeD7FromOp(op.modDepth, op.modSourceX, op.modSourceY, op.modSourceXpast, op.modSourceYpast, slot, slotBase);
 
   directSendLevel=isMuted[chanIdx]?0:directSendLevel;
-  unsigned char directPan=(unsigned char)(c.pan&0x1F);
+  //unsigned char directPan=(unsigned char)(c.pan&0x1F);
   
   /**
   +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
