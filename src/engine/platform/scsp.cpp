@@ -438,7 +438,7 @@ void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
   unsigned char  useNoise=iSlot.useNoise?128:0;
   unsigned char  egHold=iSlot.egHold?32:0;
   unsigned short egSync=iSlot.egSync?16384:0;
-  unsigned short lfoReset=iSlotlfoReset?32768:0;
+  unsigned short lfoReset=iSlot.lfoReset?32768:0;
 
   /**
   +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
