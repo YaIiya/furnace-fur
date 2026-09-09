@@ -7997,13 +7997,13 @@ void FurnaceGUI::drawInsEdit() {
           
           static const char* scspModes[]     ={ "PCM", "FM" };
           static const char* scspLpctlNames[]={ "Sample",   "One-shot", "Forward",  "Reverse", "Ping-Pong" };
-          static const char* scspLfoWS[]     ={ "Sawtooth", "Square",   "Triangle", "Noise" };
+          static const char* scspLfoWS[]     ={ "Sawtooth", "Square",   "Triangle", "Noise" };/*
           static const char* scspModSourceOptions[]={
             "Op 1","Op 2","Op 3","Op 4","Op 5","Op 6","Op 7","Op 8",
             "Op 9","Op 10","Op 11","Op 12","Op 13","Op 14","Op 15","Op 16",
             "Op 17","Op 18","Op 19","Op 20","Op 21","Op 22","Op 23","Op 24",
             "Op 25","Op 26","Op 27","Op 28","Op 29","Op 30","Op 31","Op 32"
-          };
+          };*/
           
           int modeIdx=ins->scsp.mode;
           if (ImGui::Combo(_("Synthesis Mode"),&modeIdx,scspModes,2)) {
