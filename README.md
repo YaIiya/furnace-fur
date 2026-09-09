@@ -16,25 +16,25 @@ Alright so im pretty sure my ssd is alive and as soon as i can i will check and 
 
 updates.
 
-- ~~allow for use of 8-bit samples~~
- - ~~8-bit samples dont fuck up the alignment of 16-bit ones (sends the last sample to the stratosphere if it doesnt align)~~
-- ~~actully treat 8-bit samples as 8-bit samples during playback~~
-- ~~byteswap 8-bit samples~~
-- ~~implement full 8-bit volume range of scsp~~
-- remove feedback and add a second input slot instead
-- fix max total level in instrument editor
-- fix max volume in macro editor
-- fix volume macro crash
-- fix pan (how??)
-- offset pan macro by -15?
-- get Sound Direct bit working if it does what i think it does
-- fix LPSLNK check box?? It just mutes sound when on which shouldnt happen
-- change the ins editor ui??
-- get SSCTL working??
-‐ replace hz fixed frequency with Block+Fnum
-- possibly fm wave preview????
-- also maybe make so that fm doesnt assume that your wave is 1024 samples long and actually uses the wave length
-- rework the ui a bit so its nicer
-- ???
+- [ ] port pitch to DivPitchTable
+- [x] ~~allow for use of 8-bit samples~~
+ - [x] ~~8-bit samples dont fuck up the alignment of 16-bit ones (sends the last sample to the stratosphere if it doesnt align)~~
+- [x] ~~actully treat 8-bit samples as 8-bit samples during playback~~
+- [x] ~~byteswap 8-bit samples~~
+- [x] ~~implement full 8-bit volume range of scsp~~
+- [x] ~~remove feedback and add a second input slot instead~~
+- [x] ~~fix max total level in instrument editor~~
+- [ ] separate instrument into 2
+- [ ] fix max volume in macro editor
+- [x] ~~fix volume macro crash~~
+- [ ] fix pan (how??)
+- [ ] offset pan macro by -15?
+- [ ] fix LPSLNK check box?? It just mutes sound when on which shouldnt happen
+- [ ] change the ins editor ui
+- [ ] get SSCTL working??
+- [ ] replace hz fixed frequency with Block+Fnum
+- [ ] possibly fm wave preview????
+- [ ] make so that fm doesnt assume that your wave is 1024 samples long and actually uses the wave length
+- [ ] ???
 
 the list goes top down from most priority.
