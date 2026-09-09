@@ -1768,7 +1768,7 @@ void DivInstrument::writeFeatureSC(SafeWriter* w) {
     DivInstrumentSCSP::Op& op=scsp.ops[i];
 	
 	// fixed freq
-    w->writeC(op.useFixedFreq?1:0);
+    w->writeC(op.useFixedFreq);
     w->writeC(op.fixedBlock);
     w->writeS(op.fixedFnum);
     
@@ -3392,7 +3392,7 @@ void DivInstrument::readFeatureSC(SafeReader& reader, short version) {
     DivInstrumentSCSP::Op& op=scsp.ops[i];
 	
 	// fixed freq
-    op.useFixedFreq=(bool)reader.readC();
+    op.useFixedFreq=reader.readC();
     op.fixedBlock=reader.readC();
     op.fixedFnum=reader.readS();
 	
