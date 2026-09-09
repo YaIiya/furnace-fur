@@ -343,10 +343,7 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
 
   // TL: linear-in-level
   //int tlInt=(int)floor((1.0-(double)op.level/127.0)*127.0+0.5); 
-  int tlInt=(int)floor((1.0-(double)op.level/255.0)*255.0); 
-  if (tlInt<0) tlInt=0;
-  if (tlInt>255) tlInt=255;
-  unsigned char tl=(unsigned char)tlInt;
+  unsigned char finalTl=op.directSendLevel?(255 - (255 * ((float)c.outVol/255) * ((float)(255-op.level)/255))):op.level;
 
   unsigned short d4=(((unsigned short)(op.decay1Rate&0x1F))<<11)
                   | (((unsigned short)(op.decay2Rate&0x1F))<<6)
@@ -378,7 +375,7 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
   **/
   unsigned char useNoise=(op.useNoise)?128:0;
-  unsigned char lfoReset=(op.lfoReset)?32768:0;
+  unsigned short lfoReset=(op.lfoReset)?32768:0;
   unsigned char lfoFreq=op.lfoFreq;
   unsigned char lfoDepthPitch=op.lfoDepthPitch&7;
   unsigned char lfoWavePitch=op.lfoWavePitch&3;
@@ -392,7 +389,7 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   scsp_write_slot(slot,0x3,(unsigned short)(loopEnd&0xFFFF));
   scsp_write_slot(slot,0x4,d4);
   scsp_write_slot(slot,0x5,d5);
-  scsp_write_slot(slot,0x6,(unsigned short)(tl&0xFF));
+  scsp_write_slot(slot,0x6,finalTl);
   scsp_write_slot(slot,0x7,d7);
   scsp_write_slot(slot,0x8,octBits);
   scsp_write_slot(slot,0x9,d9);
@@ -438,9 +435,10 @@ void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
   }
   // Instrument can override loop control
 
-  unsigned char useNoise=iSlot.useNoise?128:0;
-  unsigned char egHold=iSlot.egHold?32:0;
-  unsigned char egSync=iSlot.egSync?16384:0;
+  unsigned char  useNoise=iSlot.useNoise?128:0;
+  unsigned char  egHold=iSlot.egHold?32:0;
+  unsigned short egSync=iSlot.egSync?16384:0;
+  unsigned short lfoReset=iSlotlfoReset?32768:0;
 
   /**
   +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
@@ -487,7 +485,7 @@ void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
 	d7=0;
   }*/
   // reg 0x9: LFOF[14:10] | PLFOWS[9:8] | PLFOS[7:5] | ALFOWS[4:3] | ALFOS[2:0]
-  unsigned short d9=iSlot.lfoReset
+  unsigned short d9=lfoReset
                   | (((unsigned short)(iSlot.lfoFreq&0x1F))<<10)
                   | (((unsigned short)(iSlot.lfoWavePitch&0x3))<<8)
                   | (((unsigned short)(iSlot.lfoDepthPitch&0x7))<<5)
