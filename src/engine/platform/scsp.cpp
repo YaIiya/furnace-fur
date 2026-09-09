@@ -508,7 +508,7 @@ void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
 
   // DISDL/DIPAN (upper byte of reg 0xB) — direct mix output
   unsigned char directSendLevel=isMuted[chanIdx]?0:(iSlot.directSendLevel&0x7);
-  unsigned char directPan=(unsigned char)(c.pan&0x1F);
+  // unsigned char directPan=(unsigned char)(c.pan&0x1F);
   scsp_slot_set_direct_output(slot,directSendLevel,iSlot.directPan);
   scsp_slot_set_effect_send(slot,iSlot.dspInputSlot,(isMuted[chanIdx]?0:iSlot.dspSendLevel));
 
