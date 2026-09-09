@@ -2823,8 +2823,7 @@ void DivEngine::registerSystems() {
         fmt::sprintf(_("Slot %d"),ch+1),
         fmt::sprintf("S%d",ch+1),
         DIV_CH_FM,
-        DIV_INS_YMF292,
-        DIV_INS_YMF292_FM
+        DIV_INS_YMF292
       );
     }),
     scspEffectHandlerMap

@@ -23,6 +23,8 @@
 #include "IconsFontAwesome4.h"
 #include <math.h>
 
+#include "../../ta-log.h"
+
 extern "C" {
 #include "../../../extern/scsp/scsp_bridge.h"
 }
@@ -109,27 +111,27 @@ static double wavBaseNoteFor(int wavLen) {
 // `feedback` is the raw MDL nibble for the self-feedback path (0..15),
 // matching the OPL3 convention so the slider's full range maps 1:1 to an
 // audible step on the chip.
-static unsigned short computeD7FromOp(unsigned char mdl,
-									  signed char modSourceX,
-                                      signed char modSourceY,
-                                      int slot, int slotBase) {
+static unsigned short computeD7FromOp(unsigned char modDepth,
+									    signed char modSourceX,
+                                        signed char modSourceY,
+                                        signed char modSourceXpast,
+                                        signed char modSourceYpast,
+                                        int slot, int slotBase) {
   unsigned int regMdl=0, mdxsl=0, mdysl=0;
   
-  regMdl=(unsigned int)mdl & 0xF;
+  regMdl=(unsigned int)modDepth & 0xF;
   
-  if (mdl > 0) {
-	/*
-    mdxsl=(modSourceX>0)?modSourceX:0;
-    mdysl=(modSourceX>0)?modSourceX:0;
-    */
+  if (modDepth > 0) {
     if (modSourceX>=0) {
       int modSlotX=slotBase+(int)modSourceX;
-      unsigned int distX=(unsigned int)(modSlotX-slot) & 0x3F;
+      unsigned int distX=((unsigned int)(modSlotX-slot) & 0x1F) | 0x20;
+	  distX=modSourceXpast?(distX&0x1f):distX;
       mdxsl=distX;
     }
     if (modSourceY>=0) {
       int modSlotY=slotBase+(int)modSourceY;
-      unsigned int distY=(unsigned int)(modSlotY-slot) & 0x3F;
+      unsigned int distY=((unsigned int)(modSlotY-slot) & 0x1F) | 0x20;
+	  distY=modSourceYpast?(distY&0x1f):distY;
       mdysl=distY;
     }
   }
@@ -154,11 +156,7 @@ static unsigned short computeD7FromOp(unsigned char mdl,
 static unsigned short computeFMOctBitsForOp(const DivInstrumentSCSP::Op& op, double midiNote) {
   int wavLen=SCSP_WAVE_LEN;
   double wavBaseNote=wavBaseNoteFor(wavLen);
-  if (op.freqFixed>0) {
-    double targetNote=69.0+12.0*log2((double)op.freqFixed/440.0);
-    return computeOctFnsBits(targetNote, wavBaseNote);
-  }
-  double ratio=(double)op.freqRatio/256.0;
+  double ratio=1/*(double)op.freqRatio/256.0;*/;
   if (ratio<=0.0) ratio=1.0;
   double opBaseNote=wavBaseNote-12.0*log2(ratio);
   return computeOctFnsBits(midiNote, opBaseNote);
@@ -182,14 +180,17 @@ void DivPlatformSCSP::writeSlotPitch(int slot, int midiNote, int baseMidiNote) {
 
 void DivPlatformSCSP::writeSlotEnvelope(int slot, unsigned char ar, unsigned char d1r,
                                        unsigned char d2r, unsigned char rr,
-                                       unsigned char dl, unsigned char krs) {
+                                       unsigned char dl, unsigned char krs,
+									   bool eghold, bool egsync) {
   // reg 0x4: D2R[15:11] | D1R[10:6] | EGHOLD[5] | AR[4:0]
   unsigned short r4=(((unsigned short)(d2r&0x1F))<<11)
                   | (((unsigned short)(d1r&0x1F))<<6)
+                  | ((eghold?1:0)<<5)
                   |  ((unsigned short)(ar &0x1F));
   scsp_write_slot(slot,0x4,r4);
   // reg 0x5: LPSLNK[14] | KRS[13:10] | DL[9:5] | RR[4:0]
-  unsigned short r5=(((unsigned short)(krs&0xF))<<10)
+  unsigned short r5=((egsync?1:0)<<14)
+                  | (((unsigned short)(krs&0xF))<<10)
                   | (((unsigned short)(dl &0x1F))<<5)
                   |  ((unsigned short)(rr &0x1F));
   scsp_write_slot(slot,0x5,r5);
@@ -266,18 +267,17 @@ void DivPlatformSCSP::updateChanDirectOutput(int chanIdx) {
   if (n<=0) return;
   const DivInstrumentSCSP& st=chan[chanIdx].scspState;
   bool isFMIns=(st.mode==DivInstrumentSCSP::SCSP_MODE_FM);
-  unsigned char dipan=(unsigned char)(chan[chanIdx].pan&0x1F);
+  unsigned char directPan=(unsigned char)(chan[chanIdx].pan&0x1F);
   for (int s=0; s<n; s++) {
     int slot=chanIdx+s;
-    unsigned char disdl;
+    unsigned char directSendLevel=0;
     if (isMuted[chanIdx]) {
-      disdl=0;
     } else if (isFMIns) {
-      disdl=st.ops[s].isCarrier?7:0;
+      directSendLevel=st.ops[s].directSendLevel;
     } else {
-      disdl=st.disdl&0x7;
+      directSendLevel=st.ops[0].directSendLevel&0x7;
     }
-    scsp_slot_set_direct_output(slot,disdl,dipan);
+    scsp_slot_set_direct_output(slot,directSendLevel,directPan);
   }
 }
 
@@ -289,11 +289,10 @@ void DivPlatformSCSP::updateChanVolume(int chanIdx) {
   if (n<=0) return;
   const DivInstrumentSCSP& st=chan[chanIdx].scspState;
   bool isFMIns=(st.mode==DivInstrumentSCSP::SCSP_MODE_FM);
-  unsigned char chanTl=(unsigned char)(255-(chan[chanIdx].outVol&0xFF));
   for (int s=0; s<n; s++) {
     int slot=chanIdx+s;
-    if (isFMIns && !st.ops[s].isCarrier) continue;
-    writeSlotTotalLevel(slot,chanTl);
+    if (isFMIns && (st.ops[s].directSendLevel==0)) continue;
+    writeSlotTotalLevel(slot,(unsigned char)(255 - (255 * ((float)chan[chanIdx].outVol/255) * ((float)(255-st.ops[0].level)/255))));
   }
 }
 
@@ -302,124 +301,45 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   Channel& c=chan[chanIdx];
   const DivInstrumentSCSP::Op& op=c.scspState.ops[opIdx];
 
-  // Resolve the op's waveform source. sampleId>=0 picks a user sample
-  // (any length, any loop config); otherwise fall back to the 1024-sample
-  // built-in indexed by `waveform`. Pure FM math assumes a 1024-sample
-  // modulator, so a long sample as a modulator will alias — that's a
-  // documented experimentation hazard, not enforced here.
-  /*unsigned int sa;
-  unsigned int lsa, lea;
-  unsigned char lpctl;
-  bool useSample=(op.sampleId>=0 &&
-                  op.sampleId<parent->song.sampleLen &&
-                  sampleLoaded[op.sampleId]);
-  if (useSample) {
-    DivSample* s=parent->song.sample[op.sampleId];
-    sa=sampleOff[op.sampleId];
-    // sampleStored may be smaller than s->samples if SCSP RAM ran out
-    // and renderSamples truncated the upload. Use the stored count so
-    // the slot doesn't read past the last uploaded frame into another
-    // sample's bytes (or zeroed RAM).
-    unsigned int storedFrames=sampleStored[op.sampleId];
-    if (storedFrames<1) storedFrames=1;
-    bool needsLoop=(!op.isCarrier) || op.feedback>0 ||
-                   (op.modSource>=0 && op.mdl>=5);
-    if (s->isLoopable() && (unsigned int)s->loopEnd<=storedFrames) {
-      lsa=(unsigned int)s->loopStart;
-      lea=(unsigned int)s->loopEnd;
-      switch (s->loopMode) {
-        case DIV_SAMPLE_LOOP_FORWARD:  lpctl=1; break;
-        case DIV_SAMPLE_LOOP_BACKWARD: lpctl=2; break;
-        case DIV_SAMPLE_LOOP_PINGPONG: lpctl=3; break;
-        default: lpctl=1; break;
-      }
-    } else if (needsLoop) {
-      // Modulator/feedback ops MUST keep producing output continuously,
-      // even if the user picked a non-looping sample — otherwise the
-      // slot reaches end-of-sample and stops, killing the FM modulation.
-      lsa=0;
-      lea=storedFrames;
-      lpctl=1;
-    } else {
-      lsa=0;
-      lea=storedFrames;
-      lpctl=0;
-    }
-  } else {
-    // No sample assigned — leave the slot unprogrammed (and the caller
-    // skips key-on for this op so it stays silent).
-    return;
-  }
-  if (lea>0xFFFF) lea=0xFFFF;
-  if (lsa>=lea) lsa=0;
-
-  unsigned short octBits=computeFMOctBitsForOp(op, midiNote);
-
-  // TL: linear-in-level.
-  int tlInt=(int)floor((1.0-(double)op.level/127.0)*128.0+0.5);
-  if (tlInt<0) tlInt=0;
-  if (tlInt>255) tlInt=255;
-  unsigned char tl=(unsigned char)tlInt;
-
-  unsigned short d4=(((unsigned short)(op.d2r&0x1F))<<11)
-                  | (((unsigned short)(op.d1r&0x1F))<<6)
-                  |  ((unsigned short)(op.ar &0x1F));
-  // Force KRS=0xF (key-rate scaling disabled). Without this, the DR_TIMES
-  // tables (which assume KRS=0xF) disagree with the hardware envelope and
-  // the high-level rate→time mapping is wrong away from ~A3.
-  unsigned short d5=((unsigned short)0xF<<10)
-                  | (((unsigned short)(op.dl&0x1F))<<5)
-                  |  ((unsigned short)(op.rr&0x1F));
-  unsigned short d7=computeD7FromOp(op.mdl, op.modSource, op.feedback, slot, slotBase);
-
-  unsigned char disdl=isMuted[chanIdx]?0:(op.isCarrier?7:0);
-  unsigned char dipan=(unsigned char)(c.pan&0x1F);
-
-  unsigned short r0=((lpctl&0x3)<<5)|((sa>>16)&0xF);
-  scsp_write_slot(slot,0x0,r0);*/
-  unsigned int sa;
-  unsigned int lsa, lea;
-  unsigned char lpctl;
+  unsigned int startAddress;
+  unsigned int loopStart, loopEnd;
+  unsigned char loopType = 0;
   bool useSample=(op.sampleId>=0 &&
                   op.sampleId<parent->song.sampleLen &&
                   sampleLoaded[op.sampleId]);
   bool is8Bit = false;
-
+  unsigned char directSendLevel = op.directSendLevel;
   if (useSample) {
     DivSample* s=parent->song.sample[op.sampleId];
-    sa=sampleOff[op.sampleId];
-    
+    startAddress=sampleOff[op.sampleId];
 	is8Bit = (s->depth == DIV_SAMPLE_DEPTH_8BIT);
-    /*unsigned int storedSamples = is8Bit ? sampleStored[op.sampleId] : (sampleStored[op.sampleId] / 2);
-    if (storedSamples<1) storedSamples=1;*/
-
-    bool needsLoop=(!op.isCarrier) ||
-                   ((op.modSourceX>=0 || op.modSourceY>=0) && op.mdl>=5);
     if (s->isLoopable() && (unsigned int)s->loopEnd<=sampleStored[op.sampleId]) {
-      lsa=(unsigned int)s->loopStart;
-      lea=(unsigned int)s->loopEnd;
-      switch (s->loopMode) {
-        case DIV_SAMPLE_LOOP_FORWARD:  lpctl=1; break;
-        case DIV_SAMPLE_LOOP_BACKWARD: lpctl=2; break;
-        case DIV_SAMPLE_LOOP_PINGPONG: lpctl=3; break;
-        default: lpctl=1; break;
-      }
-    } else if (needsLoop) {
-      lsa=0;
-      lea=sampleStored[op.sampleId];
-      lpctl=1;
+      loopStart=(unsigned int)s->loopStart;
+      loopEnd=(unsigned int)s->loopEnd;
+	  if (op.loopType==DivInstrumentSCSP::SCSP_LOOP_SAMPLE) { // sample settings
+        switch (s->loopMode) {
+          case DIV_SAMPLE_LOOP_FORWARD:  loopType=1; break;
+          case DIV_SAMPLE_LOOP_BACKWARD: loopType=2; break;
+          case DIV_SAMPLE_LOOP_PINGPONG: loopType=3; break;
+          default: break;
+        }
+      } else {
+		  loopType=op.loopType-1;
+	  }
     } else {
-      lsa=0;
-      lea=sampleStored[op.sampleId];
-      lpctl=0;
+      loopStart=0;
+      loopEnd=sampleStored[op.sampleId];
+      loopType=0;
     }
   } else {
+    directSendLevel=0;
     return;
   }
-  if (lea>0xFFFF) lea=0xFFFF;
-  if (lsa>=lea) lsa=0;
-
-  unsigned short octBits=computeFMOctBitsForOp(op, midiNote);
+  if (loopEnd>0xFFFF) loopEnd=0xFFFF;
+  if (loopStart>=loopEnd) loopStart=0;
+  
+  unsigned short octBits=(op.useFixedFreq)?((op.fixedBlock<<11) | (op.fixedFnum)):(computeFMOctBitsForOp(op, midiNote));
+  
 
   // TL: linear-in-level
   //int tlInt=(int)floor((1.0-(double)op.level/127.0)*127.0+0.5); 
@@ -428,22 +348,16 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   if (tlInt>255) tlInt=255;
   unsigned char tl=(unsigned char)tlInt;
 
-  unsigned short d4=(((unsigned short)(op.d2r&0x1F))<<11)
-                  | (((unsigned short)(op.d1r&0x1F))<<6)
-                  |  ((unsigned short)(op.ar &0x1F));
-  unsigned short d5=((unsigned short)0xF<<10)
-                  | (((unsigned short)(op.dl&0x1F))<<5)
-                  |  ((unsigned short)(op.rr&0x1F));
-  unsigned short d7=computeD7FromOp(op.mdl, op.modSourceX, op.modSourceY, slot, slotBase);
+  unsigned short d4=(((unsigned short)(op.decay1Rate&0x1F))<<11)
+                  | (((unsigned short)(op.decay2Rate&0x1F))<<6)
+                  |  ((unsigned short)(op.attackRate&0x1F));
+  unsigned short d5=(((unsigned short)(op.keyRateScaling&0xF))<<10)
+                  | (((unsigned short)(op.decayLevel&0x1F))<<5)
+                  |  ((unsigned short)(op.releaseRate&0x1F));
+  unsigned short d7=computeD7FromOp(op.modDepth, op.modSourceX, op.modSourceY, op.modSourceXpast, op.modSourceYpast, slot, slotBase);
 
-  unsigned char disdl=isMuted[chanIdx]?0:(op.isCarrier?7:0);
-  unsigned char dipan=(unsigned char)(c.pan&0x1F);
-
-  /*
-  unsigned short r0=((lpctl&0x3)<<5)|((sa>>16)&0xF);
-  if (s->depth == DIV_SAMPLE_DEPTH_8BIT) { // 8-bit sample
-    r0 |= (1 << 4);
-  }*/
+  directSendLevel=isMuted[chanIdx]?0:directSendLevel;
+  unsigned char directPan=(unsigned char)(c.pan&0x1F);
   
   /**
   +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
@@ -463,209 +377,142 @@ void DivPlatformSCSP::programSlotFM(int slot, int chanIdx, int opIdx, int slotBa
   |  0x0B   |      Direct Send Level      |                  Direct Panpot                  |    DSP Effect Send Level    |                DSP Effect Panpot                |
   +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
   **/
+  unsigned char useNoise=(op.useNoise)?128:0;
+  unsigned char lfoReset=(op.lfoReset)?32768:0;
+  unsigned char lfoFreq=op.lfoFreq;
+  unsigned char lfoDepthPitch=op.lfoDepthPitch&7;
+  unsigned char lfoWavePitch=op.lfoWavePitch&3;
+  unsigned char lfoDepthAmp=op.lfoDepthAmp&7;
+  unsigned char lfoWaveAmp=op.lfoWaveAmp&3;
+  unsigned char d9=lfoReset|(lfoFreq<<10)|(lfoWavePitch<<8)|(lfoDepthPitch<<5)|(lfoWaveAmp<<3)|(lfoDepthAmp<<0);
   
-  scsp_write_slot(slot,0x0,((lpctl&0x3)<<5)|((sa>>16)&0xF)|(is8Bit<<4));
-  scsp_write_slot(slot,0x1,(unsigned short)(sa&0xFFFF));
-  scsp_write_slot(slot,0x2,(unsigned short)(lsa&0xFFFF));
-  scsp_write_slot(slot,0x3,(unsigned short)(lea&0xFFFF));
+  scsp_write_slot(slot,0x0,((loopType&0x3)<<5)|useNoise|((startAddress>>16)&0xF)|(is8Bit<<4));
+  scsp_write_slot(slot,0x1,(unsigned short)(startAddress&0xFFFF));
+  scsp_write_slot(slot,0x2,(unsigned short)(loopStart&0xFFFF));
+  scsp_write_slot(slot,0x3,(unsigned short)(loopEnd&0xFFFF));
   scsp_write_slot(slot,0x4,d4);
   scsp_write_slot(slot,0x5,d5);
   scsp_write_slot(slot,0x6,(unsigned short)(tl&0xFF));
   scsp_write_slot(slot,0x7,d7);
   scsp_write_slot(slot,0x8,octBits);
-  scsp_write_slot(slot,0x9,0);
-  // DSP send (reg 0xA): only carriers contribute to the FX bus. The
-  // modulator's raw output is internal to the FM ring buffer — routing it
-  // to MIXS via IMXL would dump an unenveloped/distorted signal alongside
-  // the carrier and produce clicks at note-on (sharp AR=31 step) plus a
-  // generally wrong wet signal.
-  if (op.isCarrier) {
-    scsp_slot_set_effect_send(slot,c.scspState.isel,c.scspState.imxl);
-  } else {
-    scsp_slot_set_effect_send(slot,0,0);
-  }
-  scsp_slot_set_effect_output(slot,0,0);
-  scsp_slot_set_direct_output(slot,disdl,dipan);
+  scsp_write_slot(slot,0x9,d9);
+  scsp_slot_set_effect_send(slot,op.dspInputSlot,op.dspSendLevel);
+  //scsp_slot_set_effect_output(slot,0,0);
+  scsp_slot_set_direct_output(slot,directSendLevel,op.directPan);
 }
 
 void DivPlatformSCSP::programSlot(int slot, int chanIdx) {
-/*
+
   Channel& c=chan[chanIdx];
   if (c.sample<0 || c.sample>=parent->song.sampleLen || !sampleLoaded[c.sample]) {
     return;
   }
   DivSample* s=parent->song.sample[c.sample];
-  const DivInstrumentSCSP& st=c.scspState;
+  const DivInstrumentSCSP& state=c.scspState;
+  const DivInstrumentSCSP::Op& iSlot=c.scspState.ops[0];  // instrument always contains 32 operators.
+                        /* ^^^ Instrument slot     */ // in pcm and relative fm modes we just hide all of them and use the first one.
 
-  unsigned int sampleByte=sampleOff[c.sample];
-
-  unsigned int loopStart=s->isLoopable()?(unsigned int)s->loopStart:0;
-  unsigned int loopEnd=s->isLoopable()?(unsigned int)s->loopEnd:(unsigned int)s->samples;
-  if (loopEnd<1) loopEnd=1;
-  if (loopEnd>0xFFFF) loopEnd=0xFFFF;
-  if (loopStart>=loopEnd) loopStart=0;
-
-  unsigned char lpctl=0;
-  if (s->isLoopable()) {
-    switch (s->loopMode) {
-      case DIV_SAMPLE_LOOP_FORWARD:  lpctl=1; break;
-      case DIV_SAMPLE_LOOP_BACKWARD: lpctl=2; break;
-      case DIV_SAMPLE_LOOP_PINGPONG: lpctl=3; break;
-      default: lpctl=1; break;
-    }
-  }
-  // Instrument can override loop control
-  if (st.lpctl!=0) lpctl=st.lpctl&0x3;
-
-  unsigned char eghold=st.eghold?1:0;
-  unsigned char lpslnk=st.lpslnk?1:0;
-  unsigned char sdir  =st.sdir?1:0;
-  unsigned char stwinh=st.stwinh?1:0;
-
-  // reg 0x0: bits 5..6 LPCTL, bit 4 PCM8B (we always use 16-bit), bits 0..3 SA hi
-  unsigned short r0=((lpctl&0x3)<<5)|((sampleByte>>16)&0xF);
-  scsp_write_slot(slot,0x0,r0);
-
-  // reg 0x1: SA low 16 bits
-  scsp_write_slot(slot,0x1,(unsigned short)(sampleByte&0xFFFF));
-  // reg 0x2: LSA — loop start in samples
-  scsp_write_slot(slot,0x2,(unsigned short)(loopStart&0xFFFF));
-  // reg 0x3: LEA — loop end in samples
-  scsp_write_slot(slot,0x3,(unsigned short)(loopEnd&0xFFFF));
-
-  // reg 0x4: D2R[15:11] | D1R[10:6] | EGHOLD[5] | AR[4:0]
-  unsigned short r4=(((unsigned short)(st.d2r&0x1F))<<11)
-                  | (((unsigned short)(st.d1r&0x1F))<<6)
-                  | ((eghold&1)<<5)
-                  |  ((unsigned short)(st.ar &0x1F));
-  scsp_write_slot(slot,0x4,r4);
-
-  // reg 0x5: LPSLNK[14] | KRS[13:10] | DL[9:5] | RR[4:0]
-  unsigned short r5=((lpslnk&1)<<14)
-                  | (((unsigned short)(st.krs&0xF))<<10)
-                  | (((unsigned short)(st.dl &0x1F))<<5)
-                  |  ((unsigned short)(st.rr &0x1F));
-  scsp_write_slot(slot,0x5,r5);
-
-  // reg 0x6: STWINH[9] | SDIR[8] | TL[7:0] — TL from channel volume
-  unsigned char tl=(unsigned char)(127-(c.outVol&0x7F));
-  if (st.tl>tl) tl=st.tl;
-  unsigned short r6=((stwinh&1)<<9)|((sdir&1)<<8)|(tl&0xFF);
-  scsp_write_slot(slot,0x6,r6);
-
-  // reg 0x7: MDL[15:12] | MDXSL[11:6] | MDYSL[5:0] — FM only, zero for PCM
-  scsp_write_slot(slot,0x7,0);
-
-  // reg 0x9: LFOF[14:10] | PLFOWS[9:8] | PLFOS[7:5] | ALFOWS[4:3] | ALFOS[2:0]
-  unsigned short r9=(((unsigned short)(st.lfof   &0x1F))<<10)
-                  | (((unsigned short)(st.plfows&0x3))<<8)
-                  | (((unsigned short)(st.plfos &0x7))<<5)
-                  | (((unsigned short)(st.alfows&0x3))<<3)
-                  |  ((unsigned short)(st.alfos &0x7));
-  if (st.lforeset) r9|=0x8000;
-  scsp_write_slot(slot,0x9,r9);
-
-  // DSP send (reg 0xA): ISEL[6:3] | IMXL[2:0]
-  scsp_slot_set_effect_send(slot,st.isel,st.imxl);
-
-  // EFSDL/EFPAN (lower byte of reg 0xB)
-  scsp_slot_set_effect_output(slot,st.efsdl,st.efpan);
-
-  // DISDL/DIPAN (upper byte of reg 0xB) — direct mix output
-  unsigned char disdl=isMuted[chanIdx]?0:(st.disdl&0x7);
-  unsigned char dipan=(unsigned char)(c.pan&0x1F);
-  writeSlotPan(slot,disdl,dipan);
-
-  c.sampleSet=true;
-*/
-  Channel& c=chan[chanIdx];
-  if (c.sample<0 || c.sample>=parent->song.sampleLen || !sampleLoaded[c.sample]) {
-    return;
-  }
-  DivSample* s=parent->song.sample[c.sample];
-  const DivInstrumentSCSP& st=c.scspState;
-
-  unsigned int sampleByte=sampleOff[c.sample];
+  unsigned int sampleStart=sampleOff[c.sample];
 
   //unsigned int storedSamples = (s->depth == DIV_SAMPLE_DEPTH_8BIT) ? sampleStored[c.sample] : (sampleStored[c.sample] / 2);
   //if (storedSamples < 1) storedSamples = 1;
 
-  unsigned int loopStart=s->isLoopable()?(unsigned int)s->loopStart:0;
-  unsigned int loopEnd=s->isLoopable()?(unsigned int)s->loopEnd:(unsigned int)sampleStored[c.sample];
+  unsigned int loopStart=s->isLoopable()?(unsigned int)s->loopStart:0; // get loop start
+  unsigned int loopEnd=s->isLoopable()?(unsigned int)s->loopEnd:(unsigned int)sampleStored[c.sample]; // get loop end
   if (loopEnd<1) loopEnd=1;
   if (loopEnd>0xFFFF) loopEnd=0xFFFF;
   if (loopStart>=loopEnd) loopStart=0;
 
-  unsigned char lpctl=0;
-  if (s->isLoopable()) {
-    switch (s->loopMode) {
-      case DIV_SAMPLE_LOOP_FORWARD:  lpctl=1; break;
-      case DIV_SAMPLE_LOOP_BACKWARD: lpctl=2; break;
-      case DIV_SAMPLE_LOOP_PINGPONG: lpctl=3; break;
-      default: lpctl=1; break;
+  unsigned char loopType=0; // le loope type
+  if (iSlot.loopType==DivInstrumentSCSP::SCSP_LOOP_SAMPLE) {
+    if (s->isLoopable()) {
+      switch (s->loopMode) {
+        case DIV_SAMPLE_LOOP_FORWARD:  loopType=1; break;
+        case DIV_SAMPLE_LOOP_BACKWARD: loopType=2; break;
+        case DIV_SAMPLE_LOOP_PINGPONG: loopType=3; break;
+        default: break;
+      }
     }
+  } else {
+    loopType=iSlot.loopType-1;
   }
   // Instrument can override loop control
-  if (st.lpctl!=0) lpctl=st.lpctl&0x3;
 
-  unsigned char eghold=st.eghold?1:0;
-  unsigned char lpslnk=st.lpslnk?1:0;
-  unsigned char sdir  =st.sdir?1:0;
-  unsigned char stwinh=st.stwinh?1:0;
+  unsigned char useNoise=iSlot.useNoise?128:0;
+  unsigned char egHold=iSlot.egHold?32:0;
+  unsigned char egSync=iSlot.egSync?16384:0;
 
-  // reg 0x0: bits 5..6 LPCTL, bit 4 PCM8B, bits 0..3 SA hi
-  scsp_write_slot(slot,0x0,((lpctl&0x3)<<5)|((sampleByte>>16)&0xF)|(((s->depth == DIV_SAMPLE_DEPTH_8BIT)?1:0)<<4));
+  /**
+  +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
+  | Offset  | Bit  15 | Bit  14 | Bit  13 | Bit  12 | Bit  11 | Bit  10 | Bit   9 | Bit   8 | Bit   7 | Bit   6 | Bit   5 | Bit   4 | Bit   3 | Bit   2 | Bit   1 | Bit   0 |
+  +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
+  |  0x00   | ------- | ------- | ------- | KeyOnEx | KeyOnBt | SourceBit Control | SoundSrc  Control |    Loop Control   |  PCM8B  |  Sample address (bits 19 through 16)  |
+  |  0x01   |                                                             Sample address (bits 15 through 0)                                                                |
+  |  0x02   |                                                                     Loop start address                                                                        |
+  |  0x03   |                                                                      Loop end address                                                                         |
+  |  0x04   |                  Decay 2 Rate                   |                  Decay 1 Rate                   | EnvHold |                   Attack Rate                   |
+  |  0x05   | ------- | LpStLnk |           Key Rate Scaling            |                  Decay Level                    |                   Release Rate                  |
+  |  0x06   | ------- | ------- | ------- | ------- | ------- | ------- | StkWrIn | SndDirt |                                  Total Level                                  |
+  |  0x07   |        Modulation Input Level         |                 Modulation Input X Select                 |                 Modulation Input Y Select                 |
+  |  0x08   | ------- |                Octave                 | ------- |                                         Frequency Number                                          |
+  |  0x09   | LFORest |                  LFO Frequency                  | LFO FreqMod Wave  |      LFO FreqMod Depth      |  LFO AmpMod Wave  |      LFO AmpMod Depth       |
+  |  0x0A   | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |           DSP Input Select            |       DSP Send Level        |
+  |  0x0B   |      Direct Send Level      |                  Direct Panpot                  |    DSP Effect Send Level    |                DSP Effect Panpot                |
+  +---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+---------+
+  **/
 
-  // reg 0x1: SA low 16 bits
-  scsp_write_slot(slot,0x1,(unsigned short)(sampleByte&0xFFFF));
-  // reg 0x2: LSA — loop start in samples
-  scsp_write_slot(slot,0x2,(unsigned short)(loopStart&0xFFFF));
-  // reg 0x3: LEA — loop end in samples
-  scsp_write_slot(slot,0x3,(unsigned short)(loopEnd&0xFFFF));
-
-  // reg 0x4: D2R[15:11] | D1R[10:6] | EGHOLD[5] | AR[4:0]
-  unsigned short r4=(((unsigned short)(st.d2r&0x1F))<<11)
-                  | (((unsigned short)(st.d1r&0x1F))<<6)
-                  | ((eghold&1)<<5)
-                  |  ((unsigned short)(st.ar &0x1F));
-  scsp_write_slot(slot,0x4,r4);
-
-  // reg 0x5: LPSLNK[14] | KRS[13:10] | DL[9:5] | RR[4:0]
-  unsigned short r5=((lpslnk&1)<<14)
-                  | (((unsigned short)(st.krs&0xF))<<10)
-                  | (((unsigned short)(st.dl &0x1F))<<5)
-                  |  ((unsigned short)(st.rr &0x1F));
-  scsp_write_slot(slot,0x5,r5);
-
-  // reg 0x6: STWINH[9] | SDIR[8] | TL[7:0] — TL from channel volume
-  /*unsigned char tl=(unsigned char)((127-(c.outVol&0x7F))); */
-  unsigned char tl=(unsigned char)((255-(c.outVol&0xFF))); 
-  if (st.tl>tl) tl=st.tl;
-  unsigned short r6=((stwinh&1)<<9)|((sdir&1)<<8)|(tl&0xFF);
-  scsp_write_slot(slot,0x6,r6);
-
-  // reg 0x7: MDL[15:12] | MDXSL[11:6] | MDYSL[5:0] — FM only, zero for PCM
-  scsp_write_slot(slot,0x7,0);
-
+  unsigned short d4=(((unsigned short)(iSlot.decay2Rate&0x1F))<<11)
+                  | (((unsigned short)(iSlot.decay1Rate&0x1F))<<6)
+                  | egHold
+                  |  ((unsigned short)(iSlot.attackRate &0x1F));
+  unsigned short d5=egSync
+                  | (((unsigned short)(iSlot.keyRateScaling&0xF))<<10)
+                  | (((unsigned short)(iSlot.decayLevel &0x1F))<<5)
+                  |  ((unsigned short)(iSlot.releaseRate &0x1F));
+  unsigned char finalTl=255 - (255 * ((float)c.outVol/255) * ((float)(255-iSlot.level)/255));
+  unsigned short d7=(state.mode==DivInstrumentSCSP::SCSP_MODE_FM&&state.fmRelative)?((iSlot.modDepth<<12)|(iSlot.modSourceXpast?0:2048)|(iSlot.modSourceX<<6)|(iSlot.modSourceYpast?0:32)|(iSlot.modSourceY)):0;
+  //unsigned short d7;
+  /*if (state.mode==DivInstrumentSCSP::SCSP_MODE_FM&&state.fmRelative) {
+	d7=(iSlot.modDepth<<12)|(iSlot.modSourceXpast?0:2048)|(iSlot.modSourceX<<6)|(iSlot.modSourceYpast?0:32)|(iSlot.modSourceY);
+    logD("programming relative fm slot");
+    logD("parameters:");
+    logD("modSourceX:     %i", iSlot.modSourceX);
+    logD("modSourceXpast: %i", iSlot.modSourceXpast);
+    logD("modSourceY:     %i", iSlot.modSourceY);
+    logD("modSourceYpast: %i", iSlot.modSourceYpast);
+    logD("modDepth:       %i", iSlot.modDepth);
+    logD("reg:            %i", d7);
+	
+  } else {
+	d7=0;
+  }*/
   // reg 0x9: LFOF[14:10] | PLFOWS[9:8] | PLFOS[7:5] | ALFOWS[4:3] | ALFOS[2:0]
-  unsigned short r9=(((unsigned short)(st.lfof   &0x1F))<<10)
-                  | (((unsigned short)(st.plfows&0x3))<<8)
-                  | (((unsigned short)(st.plfos &0x7))<<5)
-                  | (((unsigned short)(st.alfows&0x3))<<3)
-                  |  ((unsigned short)(st.alfos &0x7));
-  if (st.lforeset) r9|=0x8000;
-  scsp_write_slot(slot,0x9,r9);
+  unsigned short d9=iSlot.lfoReset
+                  | (((unsigned short)(iSlot.lfoFreq&0x1F))<<10)
+                  | (((unsigned short)(iSlot.lfoWavePitch&0x3))<<8)
+                  | (((unsigned short)(iSlot.lfoDepthPitch&0x7))<<5)
+                  | (((unsigned short)(iSlot.lfoWaveAmp&0x3))<<3)
+                  |  ((unsigned short)(iSlot.lfoDepthAmp&0x7));
+				  
+  scsp_write_slot(slot,0x0,((useNoise|((loopType&0x3)<<5)|((s->depth==DIV_SAMPLE_DEPTH_8BIT)?16:0))|((sampleStart>>16)&0xF)));
+  scsp_write_slot(slot,0x1,(unsigned short)(sampleStart&0xFFFF));
+  scsp_write_slot(slot,0x2,(unsigned short)(loopStart&0xFFFF));
+  scsp_write_slot(slot,0x3,(unsigned short)(loopEnd&0xFFFF));
+  scsp_write_slot(slot,0x4,d4);
+  scsp_write_slot(slot,0x5,d5);
+  scsp_write_slot(slot,0x6,finalTl);
+  scsp_write_slot(slot,0x7,d7);
+  scsp_write_slot(slot,0x9,d9);
 
   // DSP send (reg 0xA): ISEL[6:3] | IMXL[2:0]
-  scsp_slot_set_effect_send(slot,st.isel,st.imxl);
-
+  scsp_slot_set_effect_send(slot,iSlot.dspInputSlot,iSlot.dspSendLevel);
   // EFSDL/EFPAN (lower byte of reg 0xB)
-  scsp_slot_set_effect_output(slot,st.efsdl,st.efpan);
+  //scsp_slot_set_effect_output(slot,st.efsdl,st.efpan);
 
   // DISDL/DIPAN (upper byte of reg 0xB) — direct mix output
-  unsigned char disdl=isMuted[chanIdx]?0:(st.disdl&0x7);
-  unsigned char dipan=(unsigned char)(c.pan&0x1F);
-  writeSlotPan(slot,disdl,dipan);
+  unsigned char directSendLevel=isMuted[chanIdx]?0:(iSlot.directSendLevel&0x7);
+  unsigned char directPan=(unsigned char)(c.pan&0x1F);
+  writeSlotPan(slot,directSendLevel,directPan);
 
   c.sampleSet=true;
 }
@@ -766,53 +613,51 @@ void DivPlatformSCSP::tick(bool sysTick) {
     }
   }
 
-  for (int i=0; i<32; i++) {
-    if (chan[i].keyOn || chan[i].keyOff || chan[i].freqChanged) {
-      const DivInstrumentSCSP& st=chan[i].scspState;
-      bool isFMIns=(st.mode==DivInstrumentSCSP::SCSP_MODE_FM);
+  for (int channel=0; channel<32; channel++) {
+    if (chan[channel].keyOn || chan[channel].keyOff || chan[channel].freqChanged) {
+      const DivInstrumentSCSP& st=chan[channel].scspState;
+      bool  isFMIns=(st.mode==DivInstrumentSCSP::SCSP_MODE_FM);
+      bool  fmRelative=st.fmRelative;
 
-      if (chan[i].keyOn) {
-        // Determine slot run: PCM=1, FM=opCount (clamped to fit in 32 slots
-        // from the chan anchor). With 1:1 chan→slot mapping, op k of an
-        // FM voice on chan i lands on slot i+k.
+      if (chan[channel].keyOn) {
         int numSlots=1;
-        if (isFMIns) {
+        if (isFMIns && !fmRelative) { // muat be both not relative and fm
           numSlots=st.opCount;
           if (numSlots<1) numSlots=1;
           if (numSlots>32) numSlots=32;
         }
-        if (i+numSlots>32) numSlots=32-i;
+        if (channel+numSlots>32) numSlots=32-channel;
 
-        // FLEXIBILITY ROADMAP — DSP-pinned slots. If the chan's required
+        // FLEXIBILITY ROADMAP - DSP-pinned slots. If the chan's required
         // slot run hits a DSP-pinned slot (slots 0/1 when a DSP program is
         // loaded), suppress the note rather than stomping the DSP routing.
         // Future: let the user pick the DSP-out slots, removing this gate.
         bool blocked=false;
         for (int k=0; k<numSlots; k++) {
-          if (slotInUse[i+k]) { blocked=true; break; }
+          if (slotInUse[channel+k]) { blocked=true; break; }
         }
 
         if (blocked) {
-          chan[i].keyOn=false;
-          chan[i].slot=-1;
-          chan[i].active=false;
+          chan[channel].keyOn=false;
+          chan[channel].slot=-1;
+          chan[channel].active=false;
         } else {
-          stealOverlapping(i,numSlots);
-          releaseChan(i);
-          activeOpCount[i]=numSlots;
-          chan[i].slot=i;
-          if (isFMIns) {
+          stealOverlapping(channel,numSlots);
+          releaseChan(channel);
+          activeOpCount[channel]=numSlots;
+          chan[channel].slot=channel;
+          if (isFMIns && !fmRelative) {
             for (int op=0; op<numSlots; op++) {
-              programSlotFM(i+op, i, op, i, (double)chan[i].note);
+              programSlotFM(channel+op, channel, op, channel, (double)chan[channel].note);
             }
           } else {
-            programSlot(i,i);
+            programSlot(channel,channel);
           }
         }
       }
 
-      if (chan[i].slot>=0) {
-        if (isFMIns) {
+      if (chan[channel].slot>=0) {
+        if (isFMIns && !fmRelative) {
           // Bypass parent->calcFreq: with SCSP's chipClock=22.58 MHz and
           // CHIP_FREQBASE=4096, the divider/clock ratio (~0.000181) makes
           // round(fbase * divider/clock) always truncate to 0. Compute the
@@ -824,24 +669,24 @@ void DivPlatformSCSP::tick(bool sysTick) {
           // note = 60 + 12*octave, while standard MIDI = 12 + 12*octave.
           // So MIDI = internal - 48. (Verified against Genesis playback:
           // tracker "C-3" / internal 96 / MIDI 48 = ~130 Hz.)
-          double midiNoteFurnace=(double)chan[i].note;
+          double midiNoteFurnace=(double)chan[channel].note;
           if (!parent->song.compatFlags.oldArpStrategy) {
-            if (chan[i].fixedArp) {
-              midiNoteFurnace=(double)chan[i].baseNoteOverride;
+            if (chan[channel].fixedArp) {
+              midiNoteFurnace=(double)chan[channel].baseNoteOverride;
             } else {
-              midiNoteFurnace+=(double)chan[i].arpOff;
+              midiNoteFurnace+=(double)chan[channel].arpOff;
             }
           }
-          midiNoteFurnace+=(double)(chan[i].pitch+chan[i].pitch2)/128.0;
+          midiNoteFurnace+=(double)(chan[channel].pitch+chan[channel].pitch2)/128.0;
           double midiNote=midiNoteFurnace-48.0;
 
-          int n=activeOpCount[i];
+          int n=activeOpCount[channel];
           for (int op=0; op<n; op++) {
             unsigned short octBits=computeFMOctBitsForOp(st.ops[op], midiNote);
-            scsp_write_slot(i+op, 0x8, octBits);
+            scsp_write_slot(channel+op, 0x8, octBits);
           }
-          chan[i].freqChanged=false;
-        } else if (chan[i].sample>=0 && sampleLoaded[chan[i].sample]) {
+          chan[channel].freqChanged=false;
+        } else if (chan[channel].sample>=0 && sampleLoaded[chan[channel].sample]) {
           // Bypass parent->calcFreq for the same reason as the FM path:
           // with SCSP's CHIP_FREQBASE=4096 / chipClock=22.58 MHz ratio,
           // round(fbase * divider/clock) truncates to 0. Recompute fbase
@@ -849,12 +694,12 @@ void DivPlatformSCSP::tick(bool sysTick) {
           // (calcBaseFreq + nbase + 2^((nbase-7296)/1536) * tuning).
           double semitone;
           if (parent->song.compatFlags.linearPitch) {
-            int nbase=chan[i].baseFreq+chan[i].pitch+chan[i].pitch2;
+            int nbase=chan[channel].baseFreq+chan[channel].pitch+chan[channel].pitch2;
             if (!parent->song.compatFlags.oldArpStrategy) {
-              if (chan[i].fixedArp) {
-                nbase=(chan[i].baseNoteOverride<<7)+chan[i].pitch+chan[i].pitch2;
+              if (chan[channel].fixedArp) {
+                nbase=(chan[channel].baseNoteOverride<<7)+chan[channel].pitch+chan[channel].pitch2;
               } else {
-                nbase+=chan[i].arpOff<<7;
+                nbase+=chan[channel].arpOff<<7;
               }
             }
             semitone=(double)nbase/128.0;
@@ -862,40 +707,44 @@ void DivPlatformSCSP::tick(bool sysTick) {
             // Non-linear pitch has no chip-native freq unit on SCSP, so
             // pitch deltas are best-effort: integer note + arp + (pitch in
             // 128ths) treated as semitone offsets.
-            semitone=(double)chan[i].note;
+            semitone=(double)chan[channel].note;
             if (!parent->song.compatFlags.oldArpStrategy) {
-              if (chan[i].fixedArp) semitone=(double)chan[i].baseNoteOverride;
-              else semitone+=(double)chan[i].arpOff;
+              if (chan[channel].fixedArp) semitone=(double)chan[channel].baseNoteOverride;
+              else semitone+=(double)chan[channel].arpOff;
             }
-            semitone+=(double)(chan[i].pitch+chan[i].pitch2)/128.0;
+            semitone+=(double)(chan[channel].pitch+chan[channel].pitch2)/128.0;
           }
-          double noteHz=(double)parent->song.tuning*
-                        pow(2.0,(semitone-60.0+3.0)/12.0);
+		  if (!chan[channel].scspState.ops[0].useFixedFreq) {
+		    double noteHz=(double)parent->song.tuning*
+							      pow(2.0,(semitone-60.0+3.0)/12.0);
 
-          DivSample* s=parent->song.sample[chan[i].sample];
-          // Apply the sample's centerRate offset (Furnace convention: a
-          // centerRate equal to parent->getCenterRate() means "play at the
-          // note's tuning frequency"; higher means upshift).
-          double off=(s->centerRate>=1.0)?((double)s->centerRate/parent->getCenterRate()):1.0;
-          double targetHz=noteHz*off;
-          int oct, fns;
-          computeOctFnsFromHz(targetHz,&oct,&fns);
-          unsigned short val=((oct&0xF)<<11)|(fns&0x3FF);
-          scsp_write_slot(chan[i].slot,0x8,val);
-          chan[i].freqChanged=false;
+			DivSample* s=parent->song.sample[chan[channel].sample];
+            // Apply the sample's centerRate offset (Furnace convention: a
+            // centerRate equal to parent->getCenterRate() means "play at the
+            // note's tuning frequency"; higher means upshift).
+            double off=(s->centerRate>=1.0)?((double)s->centerRate/parent->getCenterRate()):1.0;
+            double targetHz=noteHz*off;
+            int oct, fns;
+            computeOctFnsFromHz(targetHz,&oct,&fns);
+            unsigned short val=((oct&0xF)<<11)|(fns&0x3FF);
+            scsp_write_slot(chan[channel].slot,0x8,val);
+            chan[channel].freqChanged=false;
+		  } else {
+			scsp_write_slot(chan[channel].slot,0x8,(((chan[channel].scspState.ops[0].fixedBlock)<<11)|(chan[channel].scspState.ops[0].fixedFnum)));
+		  }
         }
       }
 
-      if (chan[i].keyOn) {
-        int n=activeOpCount[i];
+      if (chan[channel].keyOn) {
+        int n=activeOpCount[channel];
         for (int s=0; s<n; s++) {
-          scsp_key_on(i+s);
+          scsp_key_on(channel+s);
         }
-        chan[i].keyOn=false;
+        chan[channel].keyOn=false;
       }
-      if (chan[i].keyOff) {
-        releaseChan(i);
-        chan[i].keyOff=false;
+      if (chan[channel].keyOff) {
+        releaseChan(channel);
+        chan[channel].keyOff=false;
       }
     }
   }
@@ -1120,15 +969,14 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
       break;
     case DIV_CMD_GET_VOLMAX:
       return 255;
-      //return 127;
 	  
-    // ── SCSP runtime effects. Mutate scspState first so a fresh row
+    // -- SCSP runtime effects. Mutate scspState first so a fresh row
     // (effect dispatches before NOTE_ON sets keyOn) survives the
     // commitState-on-insChanged seeding at note-on. If the slot is
     // already active, also write the chip register immediately.
     case DIV_CMD_SCSP_LFO_FREQ:
     case DIV_CMD_SCSP_PLFO_DEPTH:
-    case DIV_CMD_SCSP_ALFO_DEPTH: {
+    case DIV_CMD_SCSP_ALFO_DEPTH: break; /*{
       DivInstrumentSCSP& st=chan[c.chan].scspState;
       if (c.cmd==DIV_CMD_SCSP_LFO_FREQ)   st.lfof =c.value&0x1F;
       if (c.cmd==DIV_CMD_SCSP_PLFO_DEPTH) st.plfos=c.value&0x07;
@@ -1141,8 +989,8 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
                       |  ((unsigned short)(st.alfos &0x7));
       scsp_write_slot(chan[c.chan].slot,0x9,r9);
       break;
-    }
-    case DIV_CMD_SCSP_KRS: {
+    }*/
+    case DIV_CMD_SCSP_KRS: break; /*{
       DivInstrumentSCSP& st=chan[c.chan].scspState;
       st.krs=c.value&0xF;
       if (chan[c.chan].slot<0) break;
@@ -1150,33 +998,33 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
                         st.ar, st.d1r, st.d2r,
                         st.rr, st.dl, st.krs);
       break;
-    }
-    case DIV_CMD_SCSP_DSP_SEND: {
+    }*/
+    case DIV_CMD_SCSP_DSP_SEND: break; /*{
       DivInstrumentSCSP& st=chan[c.chan].scspState;
       st.efsdl=c.value&0x7;
       if (chan[c.chan].slot<0) break;
       scsp_slot_set_effect_output(chan[c.chan].slot,st.efsdl,st.efpan);
       break;
-    }
-    case DIV_CMD_SCSP_DSP_PAN: {
+    }*/
+    case DIV_CMD_SCSP_DSP_PAN: break;/*{
       DivInstrumentSCSP& st=chan[c.chan].scspState;
       st.efpan=c.value&0x1F;
       if (chan[c.chan].slot<0) break;
       scsp_slot_set_effect_output(chan[c.chan].slot,st.efsdl,st.efpan);
       break;
-    }
-    case DIV_CMD_SCSP_DIRECT_SEND: {
+    }*/
+    case DIV_CMD_SCSP_DIRECT_SEND: break; /*{
       DivInstrumentSCSP& st=chan[c.chan].scspState;
       st.disdl=c.value&0x7;
       if (chan[c.chan].slot<0) break;
       writeSlotPan(chan[c.chan].slot,isMuted[c.chan]?0:st.disdl,(unsigned char)(chan[c.chan].pan&0x1F));
       break;
-    }
-    // ── FM-mode performance effects (20xx-43xx). Same pattern: mutate
+    }*/
+    // -- FM-mode performance effects (20xx-43xx). Same pattern: mutate
     // scspState so the next key-on (commitState on insChanged) keeps the
     // effect's value when it's the same instrument; also push to the chip
     // if a slot is currently active.
-    case DIV_CMD_SCSP_OP_TL: {
+    case DIV_CMD_SCSP_OP_TL: break; /*{
       int opIdx=c.value;
       if (opIdx<0 || opIdx>=32) break;
       unsigned char newTl=c.value2&0xFF;
@@ -1185,16 +1033,16 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
       int lvlInt=(int)floor((1.0-(double)newTl/255.0)*254.0+1.0);
       if (lvlInt<0) lvlInt=0;
       if (lvlInt>255) lvlInt=255;
-	  /*int lvlInt=(int)floor((1.0-(double)newTl/255.0)*254.0+1.0);
-      if (lvlInt<0) lvlInt=0;
-      if (lvlInt>127) lvlInt=127;*/
+	  //int lvlInt=(int)floor((1.0-(double)newTl/255.0)*254.0+1.0);
+      //if (lvlInt<0) lvlInt=0;
+      //if (lvlInt>127) lvlInt=127;
       chan[c.chan].scspState.ops[opIdx].level=(unsigned char)lvlInt;
       int n=activeOpCount[c.chan];
       if (opIdx>=n) break;
       scsp_write_slot(c.chan+opIdx,0x6,(unsigned short)newTl);
       break;
-    }
-    case DIV_CMD_SCSP_OP_MDL: {
+    }*/
+    case DIV_CMD_SCSP_OP_MDL: break; /*{
       int opIdx=c.value;
       if (opIdx<0 || opIdx>=32) break;
       unsigned char newMdl=c.value2&0xF;
@@ -1208,8 +1056,8 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
                                          slot, c.chan);
       scsp_write_slot(slot,0x7,d7);
       break;
-    }
-    case DIV_CMD_SCSP_SLOT_MOD_IN_X: {
+    }*/
+    case DIV_CMD_SCSP_SLOT_MOD_IN_X: break; /*{
       unsigned char modSourceX=c.value&0x1F;
       // Apply to every op so the next key-on retains it for any op the
       // user later marks as a carrier.
@@ -1227,8 +1075,8 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
         scsp_write_slot(slot,0x7,d7);
       }
       break;
-    }
-	case DIV_CMD_SCSP_SLOT_MOD_IN_Y: {
+    }*/
+	case DIV_CMD_SCSP_SLOT_MOD_IN_Y: break; /*{
       unsigned char modSourceY=c.value&0x1F;
       // Apply to every op so the next key-on retains it for any op the
       // user later marks as a carrier.
@@ -1246,7 +1094,8 @@ int DivPlatformSCSP::dispatch(DivCommand c) {
         scsp_write_slot(slot,0x7,d7);
       }
       break;
-    }
+    }*/
+	case DIV_CMD_MAX:
     default:
       break;
   }

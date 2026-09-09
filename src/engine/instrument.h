@@ -100,7 +100,6 @@ enum DivInstrumentType: unsigned short {
   DIV_INS_SUPERVISION=64,
   DIV_INS_UPD1771C=65,
   DIV_INS_SID3=66,
-  DIV_INS_YMF292_FM=67, // fuck
   DIV_INS_MAX,
   DIV_INS_NULL
 };
@@ -813,128 +812,65 @@ struct DivInstrumentES5506 {
     envelope(Envelope()) {}
 };
 
-struct DivInstrumentSCSP_FM {
-  bool isRelative;
-  unsigned char opCount;
-  struct Op {
-
-    signed short   fixedBlock;
-    unsigned short fixedFnum;
-    unsigned char  level;
-	
-	// envelope
-    unsigned char ar, d1r, dl, d2r, rr, krs;
-	bool eghold, lforeset;
-	
-	// phase
-    unsigned char mdl;
-	
-    bool modSourceXpast, modSourceYpast;
-    signed char modSourceX;
-    signed char modSourceY;
-	
-	// lfo
-	unsigned char lfoFreq, PMlfoWave, PMlfoDepth, AMlfoWave, AMlfoDepth;
-	
-	// output
-	unsigned char isel, imxl, efsdl, efpan, disdl, dipan;
-	
-    //unsigned short loopStart, loopEnd;
-    //unsigned char lpctlOp;
-
-    signed short sampleId;
-    Op():
-      fixedBlock(0),
-      fixedFnum(511),
-	  
-      level(255),
-	  
-      ar(31), d1r(0), dl(0), d2r(0), rr(31), krs(31),
-	  eghold(false),
-	  
-	  lforeset(false),
-	  lfoFreq(0),
-	  PMlfoWave(0),
-	  PMlfoDepth(0),
-	  AMlfoWave(0),
-	  AMlfoDepth(0),
-	  
-      mdl(0),
-      modSourceX(0),
-	  modSourceXpast(false),
-      modSourceY(0),
-	  modSourceYpast(false),
-	  
-      //isCarrier(true),
-      //loopStart(0),
-      //loopEnd(1023),
-      //lpctlOp(1),
-	  
-      sampleId(0) {}
-    bool operator==(const Op& other);
-    bool operator!=(const Op& other) {
-      return !(*this==other);
-    }
-  } ops[32];
-}
-
 struct DivInstrumentSCSP {
   enum SynthMode: unsigned char {
     SCSP_MODE_PCM=0,
     SCSP_MODE_FM=1,
   };
-  SynthMode mode;
-
-  unsigned char tl;
-  unsigned char dl;
-  unsigned char ar, d1r, d2r, rr;
-  unsigned char krs;
-  unsigned char lpctl;
-  bool eghold, lpslnk, sdir, stwinh;
-
-  unsigned char lfof;
-  unsigned char plfows, plfos;
-  unsigned char alfows, alfos;
-  bool lforeset;
-
-  unsigned char isel;
-  unsigned char imxl;
-  unsigned char efsdl;
-  unsigned char efpan;
-  unsigned char disdl;
-  unsigned char dipan;
-
+  enum LoopType: unsigned char {
+	  SCSP_LOOP_SAMPLE=0,
+	  SCSP_LOOP_DISABLED,
+	  SCSP_LOOP_FORWARD,
+	  SCSP_LOOP_BACKWARD,
+	  SCSP_LOOP_PONG,
+  };
+  SynthMode mode;  // type
+  bool fmRelative; // fm the way tildearrow imagined
   unsigned char opCount;
   struct Op {
-    unsigned short freqRatio;
-    unsigned short freqFixed;
-    unsigned char level;
-    unsigned char ar, d1r, dl, d2r, rr;
-    unsigned char mdl;
-    signed char modSourceX;
-    signed char modSourceY;
-    //unsigned char feedback;
-    bool isCarrier;
-    unsigned short loopStart, loopEnd;
-    unsigned char lpctlOp;
-    // The SCSP doesn't distinguish FM from PCM at the slot level — any RAM
-    // contents can drive a slot, and any slot can be modulated by another.
-    // FM operators reference a regular DivSample by id; sampleId<0 means
-    // the operator has no source and the slot stays silent.
+	// freq
+	bool           useFixedFreq;
+    unsigned char  fixedBlock;
+    unsigned short fixedFnum;
+	
+	// vol
+    unsigned char  level;
+	
+	// env
+    unsigned char  attackRate, decay1Rate, decayLevel, decay2Rate, releaseRate, keyRateScaling;
+	
+	// toggles and other
+	bool          egHold, egSync, lfoReset, useNoise;
+	unsigned char loopType; // lpctl
+	
+	// fm shit
+    unsigned char  modDepth, modSourceX,     modSourceY;
+	bool                     modSourceXpast, modSourceYpast;
+	// there is no "no input", slot always takes another one or itself.
+	// the only difference is that the modulation input level is always 0 if you want no fm.
+
+    // lfo
+	unsigned char lfoFreq, lfoDepthPitch, lfoWavePitch, lfoDepthAmp, lfoWaveAmp;
+	
+	// sound output
+	unsigned char dspInputSlot, dspSendLevel, directSendLevel;
+	signed char                               directPan;
+    
     signed short sampleId;
+	
     Op():
-      freqRatio(256),
-      freqFixed(0),
-      level(208),
-      ar(31), d1r(0), dl(0), d2r(0), rr(31),
-      mdl(0),
-      modSourceX(-1),
-      modSourceY(-1),
-      //feedback(0),
-      isCarrier(true),
-      loopStart(0),
-      loopEnd(1023),
-      lpctlOp(1),
+	  useFixedFreq(false),
+      fixedBlock(0),
+      fixedFnum(512),
+      level(0),
+      attackRate(31), decay1Rate(0), decayLevel(0), decay2Rate(0), releaseRate(31), keyRateScaling(15),
+	  egHold(false), egSync(false), lfoReset(false), useNoise(false),
+	  loopType(SCSP_LOOP_SAMPLE),
+      modDepth(0), modSourceX(0), modSourceY(0),
+	  modSourceXpast(false), modSourceYpast(false),
+	  lfoFreq(0), lfoDepthPitch(0), lfoWavePitch(0), lfoDepthAmp(0), lfoWaveAmp(0),
+	  
+	  dspInputSlot(0), dspSendLevel(0), directSendLevel(7), directPan(0),
       sampleId(-1) {}
     bool operator==(const Op& other);
     bool operator!=(const Op& other) {
@@ -949,18 +885,7 @@ struct DivInstrumentSCSP {
 
   DivInstrumentSCSP():
     mode(SCSP_MODE_PCM),
-    tl(0), dl(0),
-    ar(31), d1r(0), d2r(0), rr(31),
-    krs(15),
-    lpctl(0),
-    eghold(false), lpslnk(false), sdir(false), stwinh(false),
-    lfof(0),
-    plfows(0), plfos(0),
-    alfows(0), alfos(0),
-    lforeset(false),
-    isel(0), imxl(0),
-    efsdl(0), efpan(0),
-    disdl(7), dipan(0),
+    fmRelative(false),
     opCount(1) {}
 };
 
@@ -1343,6 +1268,7 @@ struct DivInstrument: DivInstrumentPOD {
   void readFeatureS2(SafeReader& reader, short version);
   void readFeatureS3(SafeReader& reader, short version);
   void readFeatureSC(SafeReader& reader, short version);
+  void readFeatureSCnew(SafeReader& reader, short version);
 
   DivDataErrors readInsDataOld(SafeReader& reader, short version);
   DivDataErrors readInsDataNew(SafeReader& reader, short version, bool fui, DivSong* song);

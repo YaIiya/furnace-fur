@@ -116,7 +116,8 @@ class DivPlatformSCSP: public DivDispatch {
     void writeSlotPitch(int slot, int midiNote, int baseMidiNote);
     void writeSlotEnvelope(int slot, unsigned char ar, unsigned char d1r,
                            unsigned char d2r, unsigned char rr,
-                           unsigned char dl, unsigned char krs);
+                           unsigned char dl, unsigned char krs,
+						   bool eghold, bool egsync);
     void writeSlotTotalLevel(int slot, unsigned char tl);
     void writeSlotPan(int slot, unsigned char disdl, unsigned char dipan);
     int  midiNoteAtNativeRate(int sampleRate);
@@ -144,6 +145,7 @@ class DivPlatformSCSP: public DivDispatch {
     bool keyOffAffectsPorta(int ch);
     void setFlags(const DivConfig& flags);
     void poke(unsigned int addr, unsigned short val);
+    void read_slot_reg(unsigned int addr, unsigned int val);
     void poke(std::vector<DivRegWrite>& wlist);
     // Re-assemble the song's DSP source and push to the chip without
     // touching voice/RAM state. Returns true if the program loaded; on

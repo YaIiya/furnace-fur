@@ -1811,7 +1811,12 @@ void FurnaceGUI::drawFMEnv(unsigned char tl, unsigned char ar, unsigned char dr,
     //calculate x positions
     float arPos=float(maxArDr-ar)/maxArDr; //peak of AR, start of DR
     float drPos=arPos+((sl/15.0)*(float(maxArDr-dr)/maxArDr)); //end of DR, start of D2R
-    float d2rPos=drPos+(((15.0-sl)/15.0)*(float(31.0-d2r)/31.0)); //End of D2R
+    float d2rPos;
+    if (instType==DIV_INS_YMF292) {
+      d2rPos=drPos+(((31.0-sl)/31.0)*(float(31.0-d2r)/31.0)); //End of D2R
+	} else {
+      d2rPos=drPos+(((15.0-sl)/15.0)*(float(31.0-d2r)/31.0)); //End of D2R
+	}
     float rrPos=(float(maxRr-rr)/float(maxRr)); //end of RR
 
     //shrink all the x positions horizontally
@@ -1822,14 +1827,29 @@ void FurnaceGUI::drawFMEnv(unsigned char tl, unsigned char ar, unsigned char dr,
 
     ImVec2 pos1=ImLerp(rect.Min,rect.Max,ImVec2(0.0,1.0)); //the bottom corner
     ImVec2 pos2=ImLerp(rect.Min,rect.Max,ImVec2(arPos,(tl/maxTl))); //peak of AR, start of DR
-    ImVec2 pos3=ImLerp(rect.Min,rect.Max,ImVec2(drPos,(float)((tl/maxTl)+(sl/15.0)-((tl/maxTl)*(sl/15.0))))); //end of DR, start of D2R
+	ImVec2 pos3;
+	if (instType==DIV_INS_YMF292) {
+      pos3=ImLerp(rect.Min,rect.Max,ImVec2(drPos,(float)((tl/maxTl)+(sl/31.0)-((tl/maxTl)*(sl/31.0))))); //end of DR, start of D2R
+	} else {
+      pos3=ImLerp(rect.Min,rect.Max,ImVec2(drPos,(float)((tl/maxTl)+(sl/15.0)-((tl/maxTl)*(sl/15.0))))); //end of DR, start of D2R
+	}
     ImVec2 pos4=ImLerp(rect.Min,rect.Max,ImVec2(d2rPos,1.0)); //end of D2R
     ImVec2 posRStart=ImLerp(rect.Min,rect.Max,ImVec2(0.0,(tl/maxTl))); //release start
     ImVec2 posREnd=ImLerp(rect.Min,rect.Max,ImVec2(rrPos,1.0));//release end
-    ImVec2 posSLineHEnd=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(float)((tl/maxTl)+(sl/15.0)-((tl/maxTl)*(sl/15.0))))); //sustain horizontal line end
+    ImVec2 posSLineHEnd;
+	if (instType==DIV_INS_YMF292) {
+      posSLineHEnd=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(float)((tl/maxTl)+(sl/31.0)-((tl/maxTl)*(sl/31.0))))); //sustain horizontal line end
+	} else {
+      posSLineHEnd=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(float)((tl/maxTl)+(sl/15.0)-((tl/maxTl)*(sl/15.0))))); //sustain horizontal line end
+	}
     ImVec2 posSLineVEnd=ImLerp(rect.Min,rect.Max,ImVec2(drPos,1.0)); //sustain vertical line end
     ImVec2 posDecayRate0Pt=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(tl/maxTl))); //Height of the peak of AR, forever
-    ImVec2 posDecay2Rate0Pt=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(float)((tl/maxTl)+(sl/15.0)-((tl/maxTl)*(sl/15.0))))); //Height of the peak of SR, forever
+    ImVec2 posDecay2Rate0Pt;
+	if (instType==DIV_INS_YMF292) {
+      posDecay2Rate0Pt=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(float)((tl/maxTl)+(sl/31.0)-((tl/maxTl)*(sl/31.0))))); //Height of the peak of SR, forever
+	} else {
+      posDecay2Rate0Pt=ImLerp(rect.Min,rect.Max,ImVec2(1.0,(float)((tl/maxTl)+(sl/15.0)-((tl/maxTl)*(sl/15.0))))); //Height of the peak of SR, forever
+	}
 
     //dl->Flags=ImDrawListFlags_AntiAliasedLines|ImDrawListFlags_AntiAliasedLinesUseTex;
     if (ar==0.0) { //if AR = 0, the envelope never starts
@@ -7974,121 +7994,220 @@ void FurnaceGUI::drawInsEdit() {
           ImGui::EndTabItem();
         }
         if (ins->type==DIV_INS_YMF292) if (ImGui::BeginTabItem("SCSP")) {
-          if (ImGui::BeginTable("SCSPParams",2,ImGuiTableFlags_SizingStretchSame)) {
-            static const char* scspModes[]={ "PCM (sample)", "FM (operator graph)" };
-            static const char* scspLpctlNames[]={ "off", "forward", "reverse", "ping-pong" };
-            static const char* scspLfoWS[]={ "saw", "square", "tri", "noise" };
-            ImGui::TableSetupColumn("c0",ImGuiTableColumnFlags_WidthStretch,0.0);
-            ImGui::TableSetupColumn("c1",ImGuiTableColumnFlags_WidthStretch,0.0);
-
-            // Synthesis mode
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            int modeIdx=ins->scsp.mode;
-            if (ImGui::Combo(_("Synthesis Mode"),&modeIdx,scspModes,2)) {
-              ins->scsp.mode=(DivInstrumentSCSP::SynthMode)modeIdx;
-              MARK_MODIFIED;
-            }
-            ImGui::TableNextColumn();
-            int lpctlIdx=ins->scsp.lpctl&3;
-            if (ImGui::Combo(_("Loop Control"),&lpctlIdx,scspLpctlNames,4)) {
-              ins->scsp.lpctl=(unsigned char)lpctlIdx;
-              MARK_MODIFIED;
-            }
-
-            // Envelope (header)
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("Envelope"));
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("LFO"));
-
-            // Envelope rates / level
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Attack Rate (AR)"),ImGuiDataType_U8,&ins->scsp.ar,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("LFO Frequency"),ImGuiDataType_U8,&ins->scsp.lfof,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Decay 1 Rate (D1R)"),ImGuiDataType_U8,&ins->scsp.d1r,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            int plfowsIdx=ins->scsp.plfows&3;
-            if (ImGui::Combo(_("Pitch LFO Wave"),&plfowsIdx,scspLfoWS,4)) {
-              ins->scsp.plfows=(unsigned char)plfowsIdx; MARK_MODIFIED;
-            }
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Decay Level (DL)"),ImGuiDataType_U8,&ins->scsp.dl,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Pitch LFO Depth"),ImGuiDataType_U8,&ins->scsp.plfos,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Decay 2 Rate (D2R)"),ImGuiDataType_U8,&ins->scsp.d2r,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            int alfowsIdx=ins->scsp.alfows&3;
-            if (ImGui::Combo(_("Amp LFO Wave"),&alfowsIdx,scspLfoWS,4)) {
-              ins->scsp.alfows=(unsigned char)alfowsIdx; MARK_MODIFIED;
-            }
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Release Rate (RR)"),ImGuiDataType_U8,&ins->scsp.rr,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Amp LFO Depth"),ImGuiDataType_U8,&ins->scsp.alfos,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Total Level (TL)"),ImGuiDataType_U8,&ins->scsp.tl,&_ZERO,&_TWO_HUNDRED_FIFTY_FIVE)); rightClickable
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Reset LFO on note"),&ins->scsp.lforeset);
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Key Rate Scaling (KRS)"),ImGuiDataType_U8,&ins->scsp.krs,&_ZERO,&_FIFTEEN)); rightClickable
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Envelope Hold (EGHOLD)"),&ins->scsp.eghold);
-
-            // Routing header
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("Direct Output"));
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("DSP Send"));
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Direct Send Level (DISDL)"),ImGuiDataType_U8,&ins->scsp.disdl,&_ZERO,&_SEVEN)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Input Select (ISEL)"),ImGuiDataType_U8,&ins->scsp.isel,&_ZERO,&_FIFTEEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Direct Pan (DIPAN)"),ImGuiDataType_U8,&ins->scsp.dipan,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Input Mix Level (IMXL)"),ImGuiDataType_U8,&ins->scsp.imxl,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Sound Direct (SDIR)"),&ins->scsp.sdir);
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Effect Send (EFSDL)"),ImGuiDataType_U8,&ins->scsp.efsdl,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Sample Loop Sync to Note (LPSLNK)"),&ins->scsp.lpslnk);
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Effect Pan (EFPAN)"),ImGuiDataType_U8,&ins->scsp.efpan,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Stop on End (STWINH)"),&ins->scsp.stwinh);
-
-            ImGui::EndTable();
+          
+          static const char* scspModes[]     ={ "PCM", "FM" };
+          static const char* scspLpctlNames[]={ "Sample",   "One-shot", "Forward",  "Reverse", "Ping-Pong" };
+          static const char* scspLfoWS[]     ={ "Sawtooth", "Square",   "Triangle", "Noise" };
+          static const char* scspModSourceOptions[]={
+            "Op 1","Op 2","Op 3","Op 4","Op 5","Op 6","Op 7","Op 8",
+            "Op 9","Op 10","Op 11","Op 12","Op 13","Op 14","Op 15","Op 16",
+            "Op 17","Op 18","Op 19","Op 20","Op 21","Op 22","Op 23","Op 24",
+            "Op 25","Op 26","Op 27","Op 28","Op 29","Op 30","Op 31","Op 32"
+          };
+          
+          int modeIdx=ins->scsp.mode;
+          if (ImGui::Combo(_("Synthesis Mode"),&modeIdx,scspModes,2)) {
+            ins->scsp.mode=(DivInstrumentSCSP::SynthMode)modeIdx;
+            MARK_MODIFIED;
           }
+          
+          ImVec2 sliderSize=ImVec2(28.0f*dpiScale,128.0*dpiScale);
+          
+          //if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
+            //ImGui::Checkbox(_("Relative FM Mode"),&ins->scsp.fmRelative); MARK_MODIFIED;
+            //TOOLTIP_TEXT("Whether to use operators or ")
+          if (((ins->scsp.fmRelative) && (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM)) || (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_PCM)) {
+            DivInstrumentSCSP::Op& currentOperator=ins->scsp.ops[0];
+			if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
+              P(ImGui::Checkbox(_("Relative FM Mode"),&ins->scsp.fmRelative));
+			}
+            if (ImGui::BeginTable("SCSPADSR",8,ImGuiTableFlags_NoHostExtendX)) {
+              ImGui::TableSetupColumn("c0",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c1",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c2",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c3",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c4",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c5",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c6",ImGuiTableColumnFlags_WidthFixed,sliderSize.x);
+              ImGui::TableSetupColumn("c7",ImGuiTableColumnFlags_WidthStretch);
+              
+              ImGui::TableNextRow();
+              ImGui::TableNextColumn();
+              CENTER_TEXT("TL")
+              ImGui::TextUnformatted("TL");
+              TOOLTIP_TEXT("Total Level")
+              ImGui::TableNextColumn();
+              CENTER_TEXT("AR")
+              ImGui::TextUnformatted("AR");
+              TOOLTIP_TEXT("Attack Rate")
+              ImGui::TableNextColumn();
+              CENTER_TEXT("D1R")
+              ImGui::TextUnformatted("D1R");
+              TOOLTIP_TEXT("Decay 1 Rate")
+              ImGui::TableNextColumn();
+              CENTER_TEXT("DL")
+              ImGui::TextUnformatted("DL");
+              TOOLTIP_TEXT("Decay Level") 
+              ImGui::TableNextColumn();
+              CENTER_TEXT("D2R")
+              ImGui::TextUnformatted("D2R");
+              TOOLTIP_TEXT("Decay 2 Rate")
+              ImGui::TableNextColumn();
+              CENTER_TEXT("RR")
+              ImGui::TextUnformatted("RR");
+              TOOLTIP_TEXT("Release Rate")
+              ImGui::TableNextColumn();
+              CENTER_TEXT("KRS")
+              ImGui::TextUnformatted("KRS");
+              TOOLTIP_TEXT("Key Rate Scaling")
+              ImGui::TableNextColumn();
+              CENTER_TEXT("Envelope")
+              ImGui::TextUnformatted("Envelope");
+			  
+              ImGui::TableNextRow();
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Total Level"),sliderSize,ImGuiDataType_U8,&currentOperator.level,&_TWO_HUNDRED_FIFTY_FIVE,&_ZERO)); rightClickable
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Attack Rate"),sliderSize,ImGuiDataType_U8,&currentOperator.attackRate,&_ZERO,&_THIRTY_ONE)); rightClickable
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Decay 1 Rate"),sliderSize,ImGuiDataType_U8,&currentOperator.decay1Rate,&_ZERO,&_THIRTY_ONE)); rightClickable
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Decay Level"),sliderSize,ImGuiDataType_U8,&currentOperator.decayLevel,&_ZERO,&_THIRTY_ONE)); rightClickable
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Decay 2 Rate"),sliderSize,ImGuiDataType_U8,&currentOperator.decay2Rate,&_ZERO,&_THIRTY_ONE)); rightClickable
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Release Rate"),sliderSize,ImGuiDataType_U8,&currentOperator.releaseRate,&_ZERO,&_THIRTY_ONE)); rightClickable
+              ImGui::TableNextColumn();
+              P(CWVSliderScalar(_("Key Rate Scaling"),sliderSize,ImGuiDataType_U8,&currentOperator.keyRateScaling,&_ZERO,&_FIFTEEN)); rightClickable
+			  ImGui::TableNextColumn();
+              drawFMEnv(currentOperator.level,currentOperator.attackRate,currentOperator.decay1Rate,currentOperator.decay2Rate,currentOperator.releaseRate,currentOperator.decayLevel,0,0,0,255,31,31,ImVec2(ImGui::GetContentRegionAvail().x,sliderSize.y),ins->type);
+              ImGui::EndTable();
+            }
+			ImGui::Separator();
+            P(ImGui::Checkbox(_("EG Hold"),&currentOperator.egHold));
+			TOOLTIP_TEXT("Attack portion of EG will instead hold at maximum value for the same time.")
+            P(ImGui::Checkbox(_("Sync EG to Loop"),&currentOperator.egSync));
+			TOOLTIP_TEXT("When enabled, envelope will forcefully enter decay 1 stage when sample loops.")
+            P(ImGui::Checkbox(_("LFO Reset"),&currentOperator.lfoReset));
+			TOOLTIP_TEXT("Resets LFO on Note On.")
+            P(ImGui::Checkbox(_("Use Noise"),&currentOperator.useNoise));
+			TOOLTIP_TEXT("Use noise from LFO generator instead of a sample.")
+            P(ImGui::Checkbox(_("Fixed Frequency"),&currentOperator.useFixedFreq));
+			TOOLTIP_TEXT("Play at these settings regardless of note.")
+			if (currentOperator.useFixedFreq) {
+              P(CWSliderScalar(_("Block"),ImGuiDataType_S8,&currentOperator.fixedBlock,&_ZERO,&_FIFTEEN)); rightClickable
+			  TOOLTIP_TEXT("Frequency number markiplier.\nSet this and Frequency Number to 0 to play a sample at 44100hz.")
+              P(CWSliderScalar(_("Frequency number"),ImGuiDataType_U16,&currentOperator.fixedFnum,&_ZERO,&_ONE_THOUSAND_TWENTY_THREE)); rightClickable
+			  TOOLTIP_TEXT("Frequency number.\nSet this and Block to 0 to play a sample at 44100hz.")
+			  ImGui::Separator();
+			}
+			if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
+			  ImGui::AlignTextToFramePadding();
+		      ImGui::Text("Sample");
+			  ImGui::SameLine();
+		   	  const char* curSample=(currentOperator.sampleId>=0 && currentOperator.sampleId<e->song.sampleLen)?
+                                                         e->song.sample[currentOperator.sampleId]->name.c_str():
+                                                         "none selected";
+			  if (ImGui::BeginCombo(_("##sapl"),curSample)) {
+                if (ImGui::Selectable("none selected", currentOperator.sampleId<0)) {
+                  currentOperator.sampleId=0;
+                  MARK_MODIFIED;
+                }
+                for (int si=0; si<e->song.sampleLen; si++) {
+                  char tmp[256];
+                  snprintf(tmp,sizeof(tmp),"%d: %s##scsp_op_sample_%d",
+                              si,e->song.sample[si]->name.c_str(),si);
+                  if (ImGui::Selectable(tmp,si==currentOperator.sampleId)) {
+                    currentOperator.sampleId=(signed short)si;
+                    MARK_MODIFIED;
+                  }
+                }
+                ImGui::EndCombo();
+              }
+            }
+			sliderSize=ImVec2(ImGui::GetContentRegionAvail().x / 2,128.0*dpiScale);
+			if (ImGui::BeginTable("SCSPParamsExtra",2,ImGuiTableFlags_NoHostExtendX)) {
+              ImGui::TableNextRow();
+              ImGui::TableNextColumn();
+			  if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
+                P(CWSliderScalar(_("Mod Source X Offset"),ImGuiDataType_U8,&currentOperator.modSourceX,&_ZERO,&_THIRTY_ONE)); rightClickable
+			    TOOLTIP_TEXT("Modulation source X offset in slots. Wraps around.")
+                MARK_MODIFIED;/*
+				int modSourceX=currentOperator.modSourceX;
+                if (modSourceX>ins->scsp.opCount) modSourceX=ins->scsp.opCount-1;
+                if (ImGui::Combo(_("Mod Source X"),&modSourceX,scspModSourceOptions,ins->scsp.opCount)) {
+                  currentOperator.modSourceX=(unsigned char)modSourceX;
+                  MARK_MODIFIED;
+				}*/
+				ImGui::TableNextColumn();
+				P(ImGui::Checkbox(_("Use Past Sample##splPastX"),&currentOperator.modSourceXpast));
+			    TOOLTIP_TEXT("Use sample value from the previousl calculation rather than current.")
+				
+                ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+                P(CWSliderScalar(_("Mod Source Y Offset"),ImGuiDataType_U8,&currentOperator.modSourceY,&_ZERO,&_THIRTY_ONE)); rightClickable
+			    TOOLTIP_TEXT("Modulation source Y offset in slots. Wraps around.")
+                MARK_MODIFIED;/*
+			    int modSourceY=currentOperator.modSourceY;
+                if (modSourceY>ins->scsp.opCount) modSourceY=ins->scsp.opCount-1;
+                if (ImGui::Combo(_("Mod Source Y"),&modSourceY,scspModSourceOptions,ins->scsp.opCount)) {
+                  currentOperator.modSourceY=(unsigned char)modSourceY;
+                  MARK_MODIFIED;
+				}*/
+				ImGui::TableNextColumn();
+				P(ImGui::Checkbox(_("Use Past Sample##splPastY"),&currentOperator.modSourceYpast));
+			    TOOLTIP_TEXT("Use sample value from the previousl calculation rather than current.")
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+                P(CWSliderScalar(_("Modulation Input Level"),ImGuiDataType_U8,&currentOperator.modDepth,&_ZERO,&_FIFTEEN)); rightClickable
+			    TOOLTIP_TEXT("Sets the phase modulation depth.")
+                
+			  }
+			  ImGui::TableNextRow();
+			  ImGui::TableNextColumn();
+			  ImGui::SeparatorText("LFO Parameters");
+              P(CWSliderScalar(_("LFO Speed"),ImGuiDataType_U8,&currentOperator.lfoFreq,&_ZERO,&_THIRTY_ONE)); rightClickable
+			  int lfoWavePitch=currentOperator.lfoWavePitch;
+              if (lfoWavePitch>3) lfoWavePitch=3;
+              if (ImGui::Combo(_("LFO PM Wave"),&lfoWavePitch,scspLfoWS,4)) {
+				currentOperator.lfoWavePitch=(unsigned char)lfoWavePitch; MARK_MODIFIED;
+		      }
+              P(CWSliderScalar(_("LFO PM Depth"),ImGuiDataType_U8,&currentOperator.lfoDepthPitch,&_ZERO,&_SEVEN)); rightClickable
+			  int lfoWaveAmp=currentOperator.lfoWaveAmp;
+              if (lfoWaveAmp>3) lfoWaveAmp=3;
+              if (ImGui::Combo(_("LFO AM Wave"),&lfoWaveAmp,scspLfoWS,4)) {
+                currentOperator.lfoWaveAmp=lfoWaveAmp;
+                MARK_MODIFIED;
+		      }
+              P(CWSliderScalar(_("LFO AM Depth"),ImGuiDataType_U8,&currentOperator.lfoDepthAmp,&_ZERO,&_SEVEN)); rightClickable
+			  
+		      ImGui::TableNextColumn();
+			  ImGui::SeparatorText("Sound Parameters");
+              P(CWSliderScalar(_("Direct Level"),ImGuiDataType_U8,&currentOperator.directSendLevel,&_ZERO,&_SEVEN)); rightClickable
+			  TOOLTIP_TEXT("Output volume multiplier.")
+              P(CWSliderScalar(_("DSP Input Select"),ImGuiDataType_U8,&currentOperator.dspInputSlot,&_ZERO,&_FIFTEEN)); rightClickable
+			  TOOLTIP_TEXT("Selects to which DSP input line the signal gets sent.")
+              P(CWSliderScalar(_("DSP Send Level"),ImGuiDataType_U8,&currentOperator.dspSendLevel,&_ZERO,&_SEVEN)); rightClickable
+			  TOOLTIP_TEXT("DSP send volume multiplier.")
+			  ImGui::EndTable();
+			}
+			ImGui::SeparatorText("Miscellaneous");
+			int loopType=currentOperator.loopType;
+            if (loopType>4) loopType=4;
+            if (ImGui::Combo(_("Loop Control"),&loopType,scspLpctlNames,5)) {
+              currentOperator.loopType=(DivInstrumentSCSP::LoopType)loopType;
+              MARK_MODIFIED;
+		    }
+          } else {
+            P(ImGui::Checkbox(_("Relative FM Mode"),&ins->scsp.fmRelative));
+		  }
+		  // TODO: Regular FM interface
+		  CENTER_TEXT("Coming Soon!");
+		  ImGui::TextUnformatted("Coming Soon!");
+		  
+		  ImGui::EndTabItem();
+		  
+          /*
           if (ins->scsp.mode==DivInstrumentSCSP::SCSP_MODE_FM) {
             static const char* scspModSourceOptions[]={
               "None",
@@ -8193,13 +8312,13 @@ void FurnaceGUI::drawInsEdit() {
                       op.modSourceX=(signed char)(modSrcXIdx-1);
                       MARK_MODIFIED;
                     }
-					int modSrcYIdx=(op.modSourceY<0)?0:(op.modSourceY+1);
+                    int modSrcYIdx=(op.modSourceY<0)?0:(op.modSourceY+1);
                     if (modSrcYIdx>ins->scsp.opCount) modSrcYIdx=0;
                     if (ImGui::Combo(_("Mod Source Y"),&modSrcYIdx,scspModSourceOptions,ins->scsp.opCount+1)) {
                       op.modSourceY=(signed char)(modSrcYIdx-1);
                       MARK_MODIFIED;
                     }
-					
+                    
                     ImGui::TableNextColumn();
                     P(CWSliderScalar(_("Mod Depth"),ImGuiDataType_U8,&op.mdl,&_ZERO,&_FIFTEEN)); rightClickable
 
@@ -8234,7 +8353,7 @@ void FurnaceGUI::drawInsEdit() {
               ImGui::EndTabBar();
             }
           }
-          ImGui::EndTabItem();
+          ImGui::EndTabItem();*/
         }
         if (ins->type==DIV_INS_ES5506) if (ImGui::BeginTabItem("ES5506")) {
           if (ImGui::BeginTable("ESParams",2,ImGuiTableFlags_SizingStretchSame)) {
@@ -8499,273 +8618,8 @@ void FurnaceGUI::drawInsEdit() {
             ins->type==DIV_INS_SNES ||
             ins->type==DIV_INS_NAMCO ||
             ins->type==DIV_INS_SM8521 ||
-            (ins->type==DIV_INS_GBA_MINMOD && ins->amiga.useWave)) 
-        {
+            (ins->type==DIV_INS_GBA_MINMOD && ins->amiga.useWave)) {
           insTabWavetable(ins);
-        }
-		if (ins->type==DIV_INS_YMF292) if (ImGui::BeginTabItem("SCSP")) {
-          if (ImGui::BeginTable("SCSPParams",2,ImGuiTableFlags_SizingStretchSame)) {
-            static const char* scspLpctlNames[]={ "off", "forward", "reverse", "ping-pong" };
-            static const char* scspLfoWS[]={ "saw", "square", "tri", "noise" };
-            ImGui::TableSetupColumn("c0",ImGuiTableColumnFlags_WidthStretch,0.0);
-            ImGui::TableSetupColumn("c1",ImGuiTableColumnFlags_WidthStretch,0.0);
-
-            // Synthesis mode
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            int modeIdx=ins->scsp.mode;
-            ImGui::TableNextColumn();
-            int lpctlIdx=ins->scsp.lpctl&3;
-            if (ImGui::Combo(_("Loop Control"),&lpctlIdx,scspLpctlNames,4)) {
-              ins->scsp.lpctl=(unsigned char)lpctlIdx;
-              MARK_MODIFIED;
-            }
-
-            // Envelope (header)
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("Envelope"));
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("LFO"));
-
-            // Envelope rates / level
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Attack Rate (AR)"),ImGuiDataType_U8,&ins->scsp.ar,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("LFO Frequency"),ImGuiDataType_U8,&ins->scsp.lfof,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Decay 1 Rate (D1R)"),ImGuiDataType_U8,&ins->scsp.d1r,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            int plfowsIdx=ins->scsp.plfows&3;
-            if (ImGui::Combo(_("Pitch LFO Wave"),&plfowsIdx,scspLfoWS,4)) {
-              ins->scsp.plfows=(unsigned char)plfowsIdx; MARK_MODIFIED;
-            }
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Decay Level (DL)"),ImGuiDataType_U8,&ins->scsp.dl,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Pitch LFO Depth"),ImGuiDataType_U8,&ins->scsp.plfos,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Decay 2 Rate (D2R)"),ImGuiDataType_U8,&ins->scsp.d2r,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            int alfowsIdx=ins->scsp.alfows&3;
-            if (ImGui::Combo(_("Amp LFO Wave"),&alfowsIdx,scspLfoWS,4)) {
-              ins->scsp.alfows=(unsigned char)alfowsIdx; MARK_MODIFIED;
-            }
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Release Rate (RR)"),ImGuiDataType_U8,&ins->scsp.rr,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Amp LFO Depth"),ImGuiDataType_U8,&ins->scsp.alfos,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Total Level (TL)"),ImGuiDataType_U8,&ins->scsp.tl,&_ZERO,&_TWO_HUNDRED_FIFTY_FIVE)); rightClickable
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Reset LFO on note"),&ins->scsp.lforeset);
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Key Rate Scaling (KRS)"),ImGuiDataType_U8,&ins->scsp.krs,&_ZERO,&_FIFTEEN)); rightClickable
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Envelope Hold (EGHOLD)"),&ins->scsp.eghold);
-
-            // Routing header
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("Direct Output"));
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(_("DSP Send"));
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Direct Send Level (DISDL)"),ImGuiDataType_U8,&ins->scsp.disdl,&_ZERO,&_SEVEN)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Input Select (ISEL)"),ImGuiDataType_U8,&ins->scsp.isel,&_ZERO,&_FIFTEEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("Direct Pan (DIPAN)"),ImGuiDataType_U8,&ins->scsp.dipan,&_ZERO,&_THIRTY_ONE)); rightClickable
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Input Mix Level (IMXL)"),ImGuiDataType_U8,&ins->scsp.imxl,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Checkbox(_("Sound Direct (SDIR)"),&ins->scsp.sdir);
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Effect Send (EFSDL)"),ImGuiDataType_U8,&ins->scsp.efsdl,&_ZERO,&_SEVEN)); rightClickable
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            P(CWSliderScalar(_("DSP Effect Pan (EFPAN)"),ImGuiDataType_U8,&ins->scsp.efpan,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-
-            ImGui::EndTable();
-          }
-          {
-            static const char* scspModSourceOptionsOperators[]={
-              "None",
-              "Op 1","Op 2","Op 3","Op 4","Op 5","Op 6","Op 7","Op 8",
-              "Op 9","Op 10","Op 11","Op 12","Op 13","Op 14","Op 15","Op 16",
-              "Op 17","Op 18","Op 19","Op 20","Op 21","Op 22","Op 23","Op 24",
-              "Op 25","Op 26","Op 27","Op 28","Op 29","Op 30","Op 31","Op 32"
-            };
-			static const char* scspModSourceOptionsRelative[]={
-              "-31","-30","-29","-28","-27","-26","-25","-24",
-              "-23","-22","-21","-20","-19","-18","-17","-16",
-              "-15","-14","-13","-12","-11","-10","-9", "-8",
-              "-7", "-6", "-5", "-4", "-3", "-2", "-1", "Self",
-              "+1", "+2", "+3", "+4", "+5", "+6", "+7", "+8",
-              "+9", "+10","+11","+12","+13","+14","+15","+16",
-              "+17","+18","+19","+20","+21","+22","+23","+24",
-              "+25","+26","+27","+28","+29","+30","+31"
-            };
-
-            ImGui::SeparatorText(_("FM Operators"));
-            int opCountInt=ins->scsp.opCount;
-            if (opCountInt<1) opCountInt=1;
-            if (opCountInt>32) opCountInt=32;
-            if (ImGui::SliderInt(_("Operator Count"),&opCountInt,1,32)) {
-              ins->scsp.opCount=(unsigned char)opCountInt;
-              MARK_MODIFIED;
-            }
-
-            if (ImGui::BeginTabBar("scspOpTabs")) {
-              for (int oi=0; oi<ins->scsp.opCount; oi++) {
-                char tabLabel[16];
-                snprintf(tabLabel,sizeof(tabLabel),"Op %d",oi+1);
-                if (ImGui::BeginTabItem(tabLabel)) {
-                  DivInstrumentSCSP::Op& op=ins->scsp.ops[oi];
-                  if (ImGui::BeginTable("scspOpTable",2,ImGuiTableFlags_SizingStretchSame)) {
-                    ImGui::TableSetupColumn("c0",ImGuiTableColumnFlags_WidthStretch,0.0);
-                    ImGui::TableSetupColumn("c1",ImGuiTableColumnFlags_WidthStretch,0.0);
-
-                    // Carrier flag + sample source. The SCSP doesn't have
-                    // built-in operator waveforms — every slot reads from
-                    // sound RAM, whether it's a PCM voice or an FM op. So
-                    // FM ops just point at a regular sample like PCM does.
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    if (ImGui::Checkbox(_("Carrier"),&op.isCarrier)) MARK_MODIFIED;
-                    ImGui::TableNextColumn();
-                    {
-                      const char* curName=(op.sampleId>=0 && op.sampleId<e->song.sampleLen)?
-                                          e->song.sample[op.sampleId]->name.c_str():
-                                          "<none>";
-                      if (ImGui::BeginCombo(_("Sample"),curName)) {
-                        if (ImGui::Selectable("<none>", op.sampleId<0)) {
-                          op.sampleId=-1;
-                          MARK_MODIFIED;
-                        }
-                        for (int si=0; si<e->song.sampleLen; si++) {
-                          char tmp[256];
-                          snprintf(tmp,sizeof(tmp),"%d: %s##scsp_op_sample_%d",
-                                   si,e->song.sample[si]->name.c_str(),si);
-                          if (ImGui::Selectable(tmp,si==op.sampleId)) {
-                            op.sampleId=(signed short)si;
-                            MARK_MODIFIED;
-                          }
-                        }
-                        ImGui::EndCombo();
-                      }
-                    }
-
-                    // Frequency: ratio (Q8.8) or fixed Hz
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    bool fixedFreq=(op.freqFixed>0);
-                    if (ImGui::Checkbox(_("Fixed Hz"),&fixedFreq)) {
-                      if (fixedFreq) {
-                        if (op.freqFixed==0) op.freqFixed=440;
-                      } else {
-                        op.freqFixed=0;
-                      }
-                      MARK_MODIFIED;
-                    }
-                    ImGui::TableNextColumn();
-                    if (fixedFreq) {
-                      int hz=op.freqFixed;
-                      if (ImGui::DragInt(_("Frequency (Hz)"),&hz,1.0f,1,20000)) {
-                        if (hz<1) hz=1;
-                        if (hz>65535) hz=65535;
-                        op.freqFixed=(unsigned short)hz;
-                        MARK_MODIFIED;
-                      }
-                    } else {
-                      float ratio=(float)op.freqRatio/256.0f;
-                      if (ImGui::DragFloat(_("Ratio"),&ratio,0.01f,0.0f,16.0f,"%.3f")) {
-                        int rq=(int)(ratio*256.0f+0.5f);
-                        if (rq<0) rq=0;
-                        if (rq>65535) rq=65535;
-                        op.freqRatio=(unsigned short)rq;
-                        MARK_MODIFIED;
-                      }
-                    }
-
-                    // Level
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("Level"),ImGuiDataType_U8,&op.level,&_ZERO,&_TWO_HUNDRED_FIFTY_FIVE)); rightClickable
-
-                    // Mod source / Mod depth
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    int modSrcXIdx=(op.modSourceX<0)?0:(op.modSourceX+1);
-                    if (modSrcXIdx>ins->scsp.opCount) modSrcXIdx=0;
-                    if (ImGui::Combo(_("Mod Source X"),&modSrcXIdx,scspModSourceOptions,ins->scsp.opCount+1)) {
-                      op.modSourceX=(signed char)(modSrcXIdx-1);
-                      MARK_MODIFIED;
-                    }
-					int modSrcYIdx=(op.modSourceY<0)?0:(op.modSourceY+1);
-                    if (modSrcYIdx>ins->scsp.opCount) modSrcYIdx=0;
-                    if (ImGui::Combo(_("Mod Source Y"),&modSrcYIdx,scspModSourceOptions,ins->scsp.opCount+1)) {
-                      op.modSourceY=(signed char)(modSrcYIdx-1);
-                      MARK_MODIFIED;
-                    }
-					
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("Mod Depth"),ImGuiDataType_U8,&op.mdl,&_ZERO,&_FIFTEEN)); rightClickable
-
-                    // Per-op envelope
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::SeparatorText(_("Envelope"));
-                    ImGui::TableNextColumn();
-                    ImGui::TextDisabled(_("KRS forced to 0xF (disabled)"));
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("AR"),ImGuiDataType_U8,&op.ar,&_ZERO,&_THIRTY_ONE)); rightClickable
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("D1R"),ImGuiDataType_U8,&op.d1r,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("DL"),ImGuiDataType_U8,&op.dl,&_ZERO,&_THIRTY_ONE)); rightClickable
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("D2R"),ImGuiDataType_U8,&op.d2r,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    P(CWSliderScalar(_("RR"),ImGuiDataType_U8,&op.rr,&_ZERO,&_THIRTY_ONE)); rightClickable
-
-                    ImGui::EndTable();
-                  }
-                  ImGui::EndTabItem();
-                }
-              }
-              ImGui::EndTabBar();
-            }
-          }
-          ImGui::EndTabItem();
         }
         if (ins->type<DIV_INS_MAX) if (ImGui::BeginTabItem(_("Macros"))) {
           // NEW CODE
